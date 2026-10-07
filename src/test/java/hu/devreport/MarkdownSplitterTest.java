@@ -70,4 +70,17 @@ class MarkdownSplitterTest {
         }
         assertTrue(markdownFiles.stream().allMatch(Files::isRegularFile));
     }
+
+    @Test
+    void keepsMarkdownBelowTheLimitUnchanged() throws Exception {
+        Path source = temporaryDirectory.resolve("small.md");
+        String original = "# Rövid dokumentum\n\nÁrvíztűrő tükörfúrógép\n";
+        Files.writeString(source, original, StandardCharsets.UTF_8);
+
+        assertEquals(0, MarkdownSplitter.enforce(List.of(source), 16 * 1024));
+        assertEquals(original, Files.readString(source, StandardCharsets.UTF_8));
+        try (var files = Files.list(temporaryDirectory)) {
+            assertEquals(0, files.filter(path -> path.getFileName().toString().contains(".part-")).count());
+        }
+    }
 }

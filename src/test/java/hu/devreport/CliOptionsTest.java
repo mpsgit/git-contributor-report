@@ -151,4 +151,38 @@ class CliOptionsTest {
         assertThrows(IllegalArgumentException.class, () -> CliOptions.parseByteSize("12KB"));
         assertThrows(IllegalArgumentException.class, () -> CliOptions.parseByteSize("nagy"));
     }
+
+    @Test
+    void acceptsBinaryUnitAliasesDecimalCommaAndLongOptionName() {
+        CliOptions options = CliOptions.parse(new String[]{"--max-markdown-size", "1,5MiB"});
+
+        assertEquals(1572864L, options.maxMarkdownBytes);
+        assertEquals("1 GB", CliOptions.formatByteSize(1024L * 1024 * 1024));
+        assertEquals("750 MB", CliOptions.formatByteSize(750L * 1024 * 1024));
+        assertEquals("korlátlan", CliOptions.formatByteSize(0));
+    }
+
+    @Test
+    void rejectsEmptyBranchesFractionalBytesAndOverflow() {
+        assertThrows(CommandLine.ParameterException.class,
+                () -> CliOptions.parse(new String[]{"--source-branches", " "}));
+        assertThrows(IllegalArgumentException.class, () -> CliOptions.parseByteSize("16.1B"));
+        assertThrows(IllegalArgumentException.class, () -> CliOptions.parseByteSize("999999999999999999999GB"));
+    }
+
+    @Test
+    void parsesPathsTitleDatesVersionAndInteractiveAlias() {
+        CliOptions options = CliOptions.parse(new String[]{
+                "-i", "--root", "forrás", "--output", "eredmény", "--title", "Saját riport",
+                "--since", "2 weeks ago", "--until", "yesterday"
+        });
+
+        assertTrue(options.interactive);
+        assertEquals(Path.of("forrás"), options.root);
+        assertEquals(Path.of("eredmény"), options.output);
+        assertEquals("Saját riport", options.title);
+        assertEquals("2 weeks ago", options.since);
+        assertEquals("yesterday", options.until);
+        assertTrue(CliOptions.helpText().contains("-V, --version"));
+    }
 }

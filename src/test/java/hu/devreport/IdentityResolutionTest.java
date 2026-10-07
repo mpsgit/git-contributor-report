@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class IdentityResolutionTest {
     @TempDir
@@ -96,5 +97,18 @@ class IdentityResolutionTest {
         assertEquals(1, repository.authors.size());
         assertEquals(1, repository.byDeveloper.size());
         assertEquals(5, repository.byDeveloper.get(combined.key).commits);
+    }
+
+    @Test
+    void normalizesUnicodeWhitespaceAndBlankValuesWithoutHardcodedIdentities() {
+        assertEquals("arvizturo", Analysis.normalizeName("A\u0301rvi\u0301z\tTűrő"));
+        assertEquals("ismeretlen", Analysis.normalizeName("  \t\r\n"));
+
+        Analysis analysis = new Analysis(temporaryDirectory, temporaryDirectory.resolve("patches"));
+        Developer developer = analysis.developer("  Példa   Fejlesztő  ", "  PELDA@TEST.INVALID ");
+
+        assertEquals("Példa Fejlesztő", developer.displayName);
+        assertTrue(developer.emails.contains("pelda@test.invalid"));
+        assertEquals(1, analysis.developers.size());
     }
 }

@@ -54,6 +54,9 @@ A Git `.mailmap` szabályainak alkalmazása után a program közös profilba ren
 | `--source-branches <all\|lista>` | `all` | `all`, `local`, `remote` vagy pontos branch-nevek vesszővel elválasztva. |
 | `--interactive`, `-i` | kikapcsolva | Midnight Commander-stílusú TUI; a többi CLI-opció kezdőértékként működik. |
 | `--help`, `-h` | — | Beépített súgó. |
+| `--version`, `-V` | — | Verziószám kiírása. |
+
+A `--source-only` normalizáláskor lecseréli a `--outputs` tartalmát `source` értékre. A `--source-ref` mindig elsőbbséget élvez a `--source-branches` értékével szemben. A kimenetlista kis- és nagybetűtől független; az egyedi branchnevek eredeti írásmódja megmarad.
 
 ## Dátumszűrés
 
@@ -72,6 +75,8 @@ Csak alsó időhatárral:
 java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar `
   --root . --since 2026-01-01
 ```
+
+A Git relatív dátumkifejezései is használhatók, például `--since "2 weeks ago" --until yesterday`. Reprodukálható riporthoz az ISO-formátum ajánlott. A szűrés a commitok elemzésére és diffjeire vonatkozik; a `source` export a kiválasztott ref teljes pillanatképét írja ki, ezért azt nem csonkolja a dátumtartomány.
 
 ## Kimenet-kombinációk
 
@@ -120,6 +125,17 @@ java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar `
 
 A `--fetch` hálózati művelet. Frissíti a remote-tracking refeket és a `.git/FETCH_HEAD` fájlt; a `--prune` eltávolítja a remote-on már nem létező remote-tracking refeket. A munkakönyvtár fájljait és a lokális brancheket nem checkoutolja vagy merge-eli. Speciális, tageket a lokális tag-névtérbe leképező refspec esetén a prune tageket is törölhet. Sikertelen fetch esetén az alkalmazás figyelmeztet, majd a helyben elérhető Git-adatokkal folytatja.
 
+Hitelesítést kérő remote esetén a Git saját credential helperét vagy SSH-konfigurációját használja. A program nem olvas és nem tárol hozzáférési tokent. A riportban megjelenő remote URL-ből a HTTP felhasználói adatot, valamint a gyakori token/jelszó query paramétereket maszkolja.
+
+## Kimeneti könyvtár és újrafuttatás
+
+- A `--output` könyvtár automatikusan létrejön, és a repófelderítés kihagyja, ha a `--root` alatt található.
+- Újrafuttatáskor a kiválasztott HTML/Markdown formátum korábbi generált fejlesztő-, repó- és commitoldalai törlődnek, majd újraépülnek.
+- A forrásexport eltávolítja azokat a korábbi `source-code-*.md` fájlokat, amelyek az aktuális branchkiválasztásban már nem szerepelnek.
+- A darabolás előző `.part-NNN.md` fájljai a következő ellenőrzéskor takarításra kerülnek.
+- Más nevű, felhasználó által létrehozott fájlokat az alkalmazás nem töröl, de a generált `index.*`, `style.css` és `source-code-*` neveket fenntartottnak kell tekinteni.
+- A patch-csomag az output alatti ideiglenes `.patch-cache` könyvtárban készül, majd sikeres vagy sikertelen riportfutás után törlődik.
+
 ## PowerShell indító
 
 ```powershell
@@ -149,3 +165,25 @@ Részletes Java stack trace bekapcsolása:
 ```powershell
 $env:DEV_REPORT_DEBUG = "1"
 ```
+
+Gyakori ellenőrzések:
+
+```powershell
+git --version
+java -version
+mvn -version
+java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar --help
+```
+
+- „Nem található Git repó”: ellenőrizd a `--root` értékét és azt, hogy a könyvtár olvasható-e.
+- „Nem olvasható ref”: a `--source-ref` vagy az egyedi branchlista nem létezik minden érintett repóban; szükség esetén futtass `--fetch` opcióval.
+- Hibás magyar karakter a normál CLI-ben: valódi Windows Terminal/PowerShell konzolt használj; fájlba irányításkor UTF-8 kimenet készül.
+- A TUI nem indul vagy a billentyűk nem működnek: ne pipe-on/átirányítással futtasd; automatizáláshoz használd a normál CLI-t.
+
+## Kilépési kódok
+
+- `0`: sikeres futás, illetve a súgó vagy verzió megjelenítése.
+- `2`: hibás parancssori szintaxis vagy érvénytelen opcióérték (picocli usage error).
+- `70`: futás közbeni alkalmazáshiba, például hiányzó Git, nem olvasható ref vagy írási hiba.
+
+A tesztelési parancsokat és a kézi ellenőrzési mátrixot a [TESTING.md](TESTING.md) tartalmazza.

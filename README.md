@@ -7,12 +7,15 @@ Java alkalmazás hagyományos parancssori és Midnight Commander-stílusú telje
 - [Részletes használat és parancssori opciók](docs/USAGE.md)
 - [Kimeneti fájlok és könyvtárszerkezet](docs/OUTPUTS.md)
 - [Fejlesztői dokumentáció és architektúra](docs/ARCHITECTURE.md)
+- [Tesztelési útmutató és ellenőrzési mátrix](docs/TESTING.md)
 
 ## Követelmények
 
 - Java 21+
 - Maven 3.9+
 - Git 2.x
+
+A `java`, `mvn` és `git` parancsnak elérhetőnek kell lennie a `PATH` környezeti változóban. A Maven csak a fordításhoz szükséges; a létrehozott árnyékolt JAR minden Java-függőséget tartalmaz, de a Git parancsot futás közben is külső programként hívja.
 
 ## Felhasznált keretrendszerek és könyvtárak
 
@@ -28,11 +31,23 @@ Java alkalmazás hagyományos parancssori és Midnight Commander-stílusú telje
 
 A Git-adatok olvasása továbbra is a natív Git klienssel történik. Ez tudatos: a riportnak pontosan ugyanazt a `.mailmap`, ref-, diff-, attribútum- és objektumkezelést kell használnia, mint a vizsgált repónak, a nagy blobfolyamhoz pedig a `git cat-file --batch` lényegesen hatékonyabb.
 
-## Fordítás
+## Gyors kezdés
 
 ```powershell
-mvn clean package
+git clone git@github.com:mpsgit/git-contributor-report.git
+cd git-contributor-report
+mvn clean verify
+java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar --help
+java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar --interactive
 ```
+
+Windows alatt a mellékelt `run.ps1` szükség esetén elkészíti a JAR-t, majd továbbítja a paramétereket:
+
+```powershell
+.\run.ps1 -Root "C:\munka\projektek" -Output "C:\munka\riport" -Interactive
+```
+
+Csak csomagolás: `mvn clean package`. Csak tesztek: `mvn test`. A teljes, tiszta ellenőrzéshez a javasolt parancs a `mvn clean verify`.
 
 ## Használat
 
@@ -135,3 +150,13 @@ A Git-statisztika nem önálló teljesítménymérés. A squash merge, generált
 Az összes távoli branch csak akkor látható, ha a repó remote refjei naprakészek. A `--fetch` kapcsoló minden megtalált repóban automatikusan lefuttatja a `git fetch --all --prune` parancsot az elemzés előtt. Alapértelmezésben kikapcsolt, mert hálózati hozzáférést és hitelesítést igényelhet, valamint remote-tracking refeket törölhet.
 
 Review-kommenteket és hosting szolgáltatói beszélgetéseket a riport nem dolgoz fel; a commitokban ténylegesen rögzített kódváltozásra koncentrál.
+
+## Adatvédelem és biztonság
+
+A generált riportok neveket, e-mail-címeket, commitüzeneteket, fájlútvonalakat, teljes diffeket és akár a teljes commitolt forráskódot is tartalmazhatják. A kimeneti könyvtárat ezért ugyanúgy kell védeni, mint magát a forráskódot. A program nem küld adatot külső szolgáltatásnak; hálózati kapcsolatot csak a külön bekapcsolt `--fetch` okozhat a Git remote-ok felé.
+
+A programban nincs fejlesztői név vagy e-mail-címhez kötött összevonási szabály. Az identitásokat minden futáskor kizárólag a vizsgált Git-adatokból, a `.mailmap` eredményéből, valamint a dokumentált név- és e-mail-normalizálásból építi fel.
+
+## Projektellenőrzés
+
+Az automatikus tesztcsomag valódi, ideiglenes Git-repót is létrehoz, commitokat készít, majd ellenőrzi a HTML-, Markdown- és branchenkénti forráskód-kimenetet. A tesztadatok fiktív `test.invalid` címeket használnak. A részletek és a kézi TUI-ellenőrzési lista a [tesztelési útmutatóban](docs/TESTING.md) található.

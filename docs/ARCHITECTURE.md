@@ -52,6 +52,8 @@ A két kezelési mód nem tart fenn külön riportlogikát. Az interaktív felü
 
 Csak `source` kimenet esetén a commit- és fejlesztőelemzés teljesen kimarad. Ez fontos nagy repóknál.
 
+Az előrehaladás súlyozott fázisokból épül fel. A bekapcsolt funkcióktól függően a Git-ellenőrzés, repófelderítés, fetch, történetelemzés, riportírás és forrásexport más súlyt kap. A `ProgressReporter` monoton százalékot és fázisszámlálót ad; a TUI ehhez másodpercenként frissülő heartbeat állapotot tesz hozzá.
+
 ## Git-adatforrások
 
 - `git log --all --use-mailmap --numstat`: commitok, identitások és sorstatisztikák.
@@ -62,21 +64,42 @@ Csak `source` kimenet esetén a commit- és fejlesztőelemzés teljesen kimarad.
 
 Az alkalmazás nem checkoutol brancheket, és nem olvassa a forrásexportot a munkakönyvtárból. Emiatt a dirty worktree biztonságban marad.
 
+## Identitásfeloldás
+
+1. A `git log --use-mailmap` először a repó saját `.mailmap` szabályait alkalmazza.
+2. Az alkalmazás az azonos, kisbetűsre alakított e-mail-címeket közös profilba rendezi.
+3. Az azonos név is összevonást okoz; a név-összehasonlítás Unicode-normalizált, ékezet-, kis-/nagybetű- és whitespace-független.
+4. Az aliaskapcsolatok tranzitívek: egy név- és egy e-mail-egyezésből álló lánc is egyetlen profilt eredményez.
+5. Összevonáskor a statisztikák, repókapcsolatok, branchreferenciák, commitok, napok és aliasok is átkerülnek a közös profilba.
+
+Nincs személyhez kötött hardcode vagy külön kivétellista. A tesztek kizárólag fiktív neveket és a fenntartott `test.invalid` domaint használják.
+
 ## Memória- és lemezkezelés
 
 - A commit patch-ek egy ideiglenes `.patch-cache` csomagba kerülnek, a modell csak offsetet és hosszt tárol.
 - A fejlesztői Markdownok írása streamelt.
 - A forráskód-export branchenként, ideiglenes fájlba készül, majd atomikus átnevezéssel válik láthatóvá.
 - A `git cat-file --batch` elkerüli a fájlonkénti Git-processzeket.
+- A készülő branch-pillanatkép ideiglenes fájlba íródik, és csak lezárás után kerül a végleges névre.
+- A Markdown méretellenőrzése könyvtáranként egyszer gyűjti össze a korábbi részfájlokat, így sok commitoldalnál sem végez négyzetes számú könyvtárbejárást.
+
+## Hiba- és biztonságkezelés
+
+- A külső Git-folyamatok stdout/stderr streamjeit párhuzamos virtuális szálak olvassák, ezért nagy kimenetnél sem telik meg a processz pipe.
+- A remote URL-ek riportba kerülése előtt a HTTP userinfo és a gyakori token/jelszó query paraméterek maszkolódnak.
+- A fetch hibája figyelmeztetésként kerül a riportba; a helyben elérhető refek elemzése folytatódik.
+- A történet- vagy írási hiba megszakítja a futást, és a TUI/CLI jelzi az utolsó fázist.
+- A `.patch-cache` `finally` ágban törlődik.
 
 ## Bővítés
 
 Egy új kimeneti formátumhoz:
 
-1. Adj új engedélyezett értéket a `CliOptions.setOutputs` validációjához.
+1. Adj új engedélyezett értéket a `CliOptions.OUTPUT_NAMES` halmazhoz és az `OutputConverter` validációjához.
 2. Hozz létre külön writer/exporter osztályt.
 3. A `GitReportApplication.run` metódusban csak akkor hívd meg, ha kiválasztották.
 4. Dokumentáld a kimeneti szerkezetet az `OUTPUTS.md` fájlban.
+5. Adj CLI-, unit- és ideiglenes Git-repón futó integrációs tesztet.
 
 ## Fordítás és ellenőrzés
 
@@ -86,7 +109,18 @@ java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar --help
 java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar --interactive
 ```
 
-A `CliOptionsTest` a kimenetválasztás, patch-kapcsoló, branch-szűrés és hibás értékek regressziós tesztjeit tartalmazza.
+A tesztcsomag rétegei:
+
+| Teszt | Lefedett terület |
+|---|---|
+| `CliOptionsTest` | Alapértékek, aliasok, kimenet/branch parse, méretegységek, súgó és TUI-kezdőértékek. |
+| `GitReportApplicationTest` | Repófelderítés, útvonal/kiterjesztés segédek és külső folyamat kimenete. |
+| `GitReportApplicationIntegrationTest` | Valódi ideiglenes Git-repó, commitok, diff, társszerző, HTML/MD/source generálás és dirty worktree kizárása. |
+| `IdentityResolutionTest` | E-mail-, név-, Unicode-, whitespace- és tranzitív alias-egyesítés. |
+| `MarkdownSplitterTest` | UTF-8 darabolás, kódkerítések, méretkorlát, régi részek kötegelt takarítása. |
+| `ReportWriterTest` | HTML/Markdown escaping, fájlnév-slugok és nyelvi jelölések. |
+| `ProgressReporterTest` | Súlyozott, monoton folyamatjelzés és részszámlálók. |
+| `JLineLanternaTerminalTest` | Enter/Tab/control/Unicode billentyűk és Alt-menükódok. |
 
 Integrációs ellenőrzésnél legalább ezeket a kombinációkat érdemes futtatni:
 
@@ -94,3 +128,5 @@ Integrációs ellenőrzésnél legalább ezeket a kombinációkat érdemes futta
 - `--outputs markdown`
 - `--outputs source --source-branches local`
 - `--source-only --source-ref <branch>`
+
+A teljes automatikus és kézi eljárás a [TESTING.md](TESTING.md) fájlban található.
