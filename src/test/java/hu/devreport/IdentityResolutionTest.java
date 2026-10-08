@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -81,6 +82,15 @@ class IdentityResolutionTest {
         secondStats.commits = 3;
         first.byRepository.put("repo", firstStats);
         second.byRepository.put("repo", secondStats);
+        ContributionStats firstDay = new ContributionStats();
+        firstDay.commits = 2;
+        firstDay.additions = 10;
+        ContributionStats secondDay = new ContributionStats();
+        secondDay.commits = 3;
+        secondDay.deletions = 4;
+        LocalDate day = LocalDate.of(2026, 10, 8);
+        first.daily.put(day, firstDay);
+        second.daily.put(day, secondDay);
         RepositoryStats repository = new RepositoryStats("repo", temporaryDirectory, "", 0);
         repository.authors.add(first.key);
         repository.authors.add(second.key);
@@ -97,6 +107,9 @@ class IdentityResolutionTest {
         assertEquals(1, repository.authors.size());
         assertEquals(1, repository.byDeveloper.size());
         assertEquals(5, repository.byDeveloper.get(combined.key).commits);
+        assertEquals(5, combined.daily.get(day).commits);
+        assertEquals(10, combined.daily.get(day).additions);
+        assertEquals(4, combined.daily.get(day).deletions);
     }
 
     @Test

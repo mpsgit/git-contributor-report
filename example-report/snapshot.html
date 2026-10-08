@@ -1,0 +1,25 @@
+<!doctype html><html lang="hu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Offline Git forráskód-snapshot</title><link rel="stylesheet" href="style.css"></head><body><main>
+<nav><a href="dashboard.html">← Dashboard</a> · <a href="index.html">Összesítő</a></nav>
+<header><p class="eyebrow">OFFLINE GIT SNAPSHOT</p><h1 id="snapshot-title">Forráskód-pillanatkép</h1><p id="snapshot-meta" class="muted"></p></header>
+<p id="snapshot-error" class="empty-chart" hidden></p>
+<section id="snapshot-browser" class="snapshot-browser" hidden>
+  <aside class="snapshot-files"><label>Fájl keresése<input id="snapshot-search" type="search" placeholder="pl. src/Main.java"></label><p id="snapshot-count" class="muted"></p><div id="snapshot-list"></div></aside>
+  <article class="snapshot-preview"><h2 id="snapshot-path">Válassz fájlt</h2><iframe id="snapshot-frame" title="Snapshot forrásfájl"></iframe></article>
+</section></main><script src="snapshot-data.js"></script><script>
+(()=>{
+  const params=new URLSearchParams(location.search), repository=params.get('repository'), hash=params.get('commit');
+  const byId=id=>document.getElementById(id), all=window.GIT_SNAPSHOT_DATA && window.GIT_SNAPSHOT_DATA.repositories;
+  const repo=all && all[repository], fail=message=>{byId('snapshot-error').textContent=message;byId('snapshot-error').hidden=false;};
+  if(!repo||!hash||!repo.commits[hash]){fail('A kért offline snapshot nem található.');return;}
+  const chain=[];let current=hash;const visited=new Set();
+  while(current){if(visited.has(current)||!repo.commits[current]){fail('A snapshot előzménylánca hiányos.');return;}visited.add(current);const entry=repo.commits[current];chain.push(entry);current=entry.p;}
+  const tree=new Map();chain.reverse().forEach(entry=>entry.c.forEach(change=>change[1]==null?tree.delete(change[0]):tree.set(change[0],change[1])));
+  const files=[...tree.entries()].sort((a,b)=>a[0].localeCompare(b[0],'hu'));
+  byId('snapshot-title').textContent=repository+' · '+hash.slice(0,12);byId('snapshot-meta').textContent=hash+' · '+files.length+' követett forrásfájl/blob';byId('snapshot-browser').hidden=false;
+  const list=byId('snapshot-list'),search=byId('snapshot-search');
+  function openFile(path,blob,button){document.querySelectorAll('.snapshot-file.active').forEach(item=>item.classList.remove('active'));button.classList.add('active');byId('snapshot-path').textContent=path;byId('snapshot-frame').src='snapshots/blobs/'+blob+'.html';}
+  function render(){const query=search.value.trim().toLocaleLowerCase('hu'),visible=files.filter(file=>!query||file[0].toLocaleLowerCase('hu').includes(query));list.replaceChildren();visible.forEach(file=>{const button=document.createElement('button');button.type='button';button.className='snapshot-file';button.textContent=file[0];button.addEventListener('click',()=>openFile(file[0],file[1],button));list.appendChild(button);});byId('snapshot-count').textContent=visible.length+' / '+files.length+' fájl';if(visible.length&&list.firstChild)openFile(visible[0][0],visible[0][1],list.firstChild);}
+  search.addEventListener('input',render);render();
+})();
+</script></body></html>

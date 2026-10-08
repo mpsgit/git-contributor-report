@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>feat: alap számítás – Git Contributor Report – fejleszt?i összehasonlítás</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <main><nav><a href="../index.html">← Összesítő</a></nav><header><p class="eyebrow">COMMIT-ADATLAP · TELJES TARTALOM</p><h1>feat: alap sz&aacute;m&iacute;t&aacute;s</h1>
+<p class="muted"><code>6fe6fcb5f0df2126b7148f6f5917257bf327264f</code> · repo</p></header>
+<section class="cards six"><article><strong>repo</strong><span>repó</span></article><article><strong>2026-01-05 09:00</strong><span>dátum</span></article><article><strong>1</strong><span>fájl</span></article><article><strong>7</strong><span>hozzáadott sor</span></article><article><strong>0</strong><span>törölt sor</span></article><article><strong>feat</strong><span>típus</span></article></section>
+<section class="grid"><article class="panel"><h2>Identitások</h2><dl><dt>Author</dt><dd>Anna Kov&aacute;cs &lt;anna@example.invalid&gt;</dd><dt>Committer</dt><dd>Anna Kov&aacute;cs &lt;anna@example.invalid&gt;</dd></dl></article>
+<article class="panel"><h2>Commit üzenet</h2><pre class="message">feat: alap sz&aacute;m&iacute;t&aacute;s</pre></article></section>
+<section><div class="section-title"><div><p class="kicker">REF-ELÉRHETŐSÉG</p><h2>Branch-ek, amelyek tartalmazzák</h2></div></div><div class="branch-badges"><span class="badge"><code>feature/dashboard</code></span><span class="badge"><code>main</code></span><span class="badge"><code>origin/main</code></span></div><p class="footnote">Ez az aktuális refekből számított elérhetőség, nem feltétlenül a commit eredeti branch-e.</p></section>
+<section><div class="section-title"><div><p class="kicker">PILLANATKÉP</p><h2>A repository teljes forrása ezen a commiton</h2></div></div><p><a class="action-link" href="../snapshot.html?repository=repo&amp;commit=6fe6fcb5f0df2126b7148f6f5917257bf327264f" target="_blank" rel="noopener">Offline teljes forráskód-snapshot →</a></p></section>
+<section class="quality quality-muted"><div class="section-title"><div><p class="kicker">KÓDMINŐSÉG</p><h2>Commitminősítés</h2></div></div><p class="muted">Nem futott minőségelemzés. Indítás: <code>--quality</code>.</p></section><details class="quality-guide"><summary><strong>Mit jelent a PMD, a CPD és a pontszám?</strong></summary>
+  <div class="quality-guide-grid">
+    <article><h3>PMD – szabályalapú kódelemzés</h3><p>A forráskódot ismert hibaminták, biztonsági, teljesítmény-, tervezési és karbantarthatósági szabályok alapján vizsgálja. Egy PMD-találat lehetséges probléma, amelyet embernek kell értelmeznie.</p></article>
+    <article><h3>CPD – másolt kód keresése</h3><p>A Copy/Paste Detector tokenek alapján ismétlődő kódrészeket keres. A riport legalább 50 tokenes egyezéseket vizsgál; az ismétlés lehet indokolt is, ezért ez sem automatikus hibítélet.</p></article>
+    <article><h3>Mit elemez a riport?</h3><p>A commit utáni teljes fájlt elemzi, de csak a commitban <strong>hozzáadott sorokra</strong> eső PMD/CPD-találatokat rendeli a fejlesztőhöz. Támogatott: Java, JavaScript, TypeScript, HTML, SQL és PL/SQL.</p></article>
+    <article><h3>Hogyan készül a 0–100 pont?</h3><p>A találatok súlya prioritásonként 25, 14, 8, 4 vagy 2 pont. A levonás ezt az elemzett új sorok számához viszonyítja, legalább 50 soros nevezővel. Kategóriák: A ≥90, B ≥75, C ≥60, D ≥40, E &lt;40.</p></article>
+  </div>
+  <p class="footnote"><strong>Fontos:</strong> a magas pontszám nem bizonyítja, hogy a kód helyes vagy jó, az alacsony pontszám pedig nem bizonyít gyenge fejlesztői teljesítményt. A tesztek, az üzleti helyesség, az architektúra, a feladat nehézsége és a csapatmunka külön értékelendő.</p>
+</details>
+
+<section><h2>Érintett fájlok</h2><div class="table-wrap"><table><thead><tr><th>Útvonal</th><th>+ sor</th><th>− sor</th></tr></thead><tbody><tr><td><code>src/Activity.java</code></td><td>7</td><td>0</td></tr></tbody></table></div></section>
+<section id="code-before-after"><div class="section-title"><div><p class="kicker">FORRÁSKÓD</p><h2>Kódváltozás előtte / utána</h2></div><p class="muted">Bal oldalon a commit által eltávolított, jobb oldalon a hozzáadott kódrészek.</p></div><article class="code-change"><h3><code>src/Activity.java</code></h3><div class="before-after"><section class="code-side before"><h4 class="deleted-label">Előtte · törölt kód</h4><p class="muted">Nincs eltávolított kódrész.</p></section><section class="code-side after"><h4 class="added-label">Utána · hozzáadott kód</h4><pre class="source added"><code>package example;
+
+final class Activity {
+    int total(int first, int second) {
+        return first + second;
+    }
+}</code></pre></section></div></article></section>
+<section><div class="section-title"><div><p class="kicker">KÓDVÁLTOZÁS</p><h2>Teljes diff</h2></div><p class="muted">A Git által előállított patch, 3 sor kontextussal.</p></div><details open><summary><strong>Teljes patch megjelenítése</strong></summary><pre class="diff">diff --git a/src/Activity.java b/src/Activity.java
+new file mode 100644
+index 0000000..a258e25
+--- /dev/null
++++ b/src/Activity.java
+@@ -0,0 +1,7 @@
++package example;
++
++final class Activity {
++    int total(int first, int second) {
++        return first + second;
++    }
++}</pre></details></section>
+</main>
+  <footer>Git Contributor Report · A forrásadat a Git történet · Leíró statisztika, nem automatikus teljesítményértékelés.</footer>
+</body>
+</html>

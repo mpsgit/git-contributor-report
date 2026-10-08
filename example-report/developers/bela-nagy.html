@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Béla Nagy – Git Contributor Report – fejleszt?i összehasonlítás</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <main><nav><a href="../index.html">← Összesítő</a></nav>
+<header><p class="eyebrow">FEJLESZTŐI ADATLAP · RÉSZLETES</p><h1>B&eacute;la Nagy</h1><p class="muted">Vizsgált időszak: teljes elérhető történet</p></header>
+<section class="cards six"><article><strong>1</strong><span>commit szerzőként</span></article><article><strong>1 / 0</strong><span>nem merge / merge</span></article>
+  <article><strong>1</strong><span>közreműködési nap</span></article><article><strong>1</strong><span>repó</span></article><article><strong>3</strong><span>branch-elérhetőség</span></article><article><strong>1</strong><span>fájlérintés</span></article>
+<article><strong>6</strong><span>hozzáadott sor</span></article><article><strong>1</strong><span>törölt sor</span></article><article><strong>+5</strong><span>nettó sorváltozás</span></article>
+<article><strong>1.00</strong><span>commit / szerzői aktív nap</span></article><article><strong>7.0</strong><span>sorváltozás / commit</span></article><article><strong>0</strong><span>issue-hivatkozásos commit</span></article></section>
+<section class="grid"><article class="panel"><h2>Identitás</h2><dl><dt>Elsődleges név</dt><dd>B&eacute;la Nagy</dd><dt>Névváltozatok</dt><dd>B&eacute;la Nagy</dd><dt>E-mail</dt><dd>bela@example.invalid</dd></dl></article>
+<article class="panel"><h2>Időbeli lefedettség</h2><dl><dt>Első aktivitás</dt><dd>2026-02-12 14:30</dd><dt>Utolsó aktivitás</dt><dd>2026-02-12 14:30</dd><dt>Naptári időtáv</dt><dd>1 nap</dd></dl></article></section>
+<aside><strong>Értelmezés:</strong> a nagyobb commit- vagy sorszám nem jelent automatikusan jobb teljesítményt. Az adatokhoz mindig társíts kódminőségi, üzleti, csapatmunka- és feladatnehézségi kontextust.</aside>
+<section class="activity-section"><div class="section-title"><div><p class="kicker">KÓD AKTIVITÁSI IDŐSOR</p>
+<h2>Kódírás és -módosítás időben</h2></div><p class="muted">A jelmagyarázat elemei kapcsolhatók; az oszlop fölé állva részletes értékek jelennek meg.</p></div>
+<aside class="chart-explanation"><strong>Mit mutat?</strong> A zöld rész a hozzáadott, a piros a törölt sorok száma. A teljes oszlopmagasság a kódváltozás volumene, nem minőségi vagy teljesítménypont. A bináris fájlok fájlérintésként látszanak a tooltipben, de nincs sorszámuk.</aside>
+<div class="chart-grid"><article class="chart-card"><h3>Napi bont&aacute;s</h3><p class="chart-range">2026-02-12 &ndash; 2026-02-12 &middot; teljes szerzői időszak</p>
+<div class="chart-scroll"><div id="activity-daily" class="chart-shell" role="img" aria-label="Napi bont&aacute;s: hozzáadott és törölt kódsorok"></div></div></article>
+<article class="chart-card"><h3>Heti bont&aacute;s</h3><p class="chart-range">2026-02-09 &ndash; 2026-02-15 &middot; teljes szerzői időszak</p>
+<div class="chart-scroll"><div id="activity-weekly" class="chart-shell" role="img" aria-label="Heti bont&aacute;s: hozzáadott és törölt kódsorok"></div></div></article>
+<article class="chart-card"><h3>Havi bont&aacute;s</h3><p class="chart-range">2026-02 &ndash; 2026-02 &middot; teljes szerzői időszak</p>
+<div class="chart-scroll"><div id="activity-monthly" class="chart-shell" role="img" aria-label="Havi bont&aacute;s: hozzáadott és törölt kódsorok"></div></div></article>
+</div>
+<noscript><p class="empty-chart">A grafikonok megjelenítéséhez engedélyezni kell a helyi JavaScript futását. Külső hálózati kapcsolat nem történik.</p></noscript>
+</section>
+<script src="../echarts.min.js"></script>
+<script>
+(() => {
+  const chartSeries = {daily:{"labels":["2026-02-12"],"additions":[6],"deletions":[1],"commits":[1],"files":[1]},weekly:{"labels":["2026-W07"],"additions":[6],"deletions":[1],"commits":[1],"files":[1]},monthly:{"labels":["2026-02"],"additions":[6],"deletions":[1],"commits":[1],"files":[1]}};
+  function drawActivityChart(id, series, axisTitle) {
+    const element = document.getElementById(id);
+    if (!element || typeof echarts === 'undefined') return null;
+    const chart = echarts.init(element);
+    chart.setOption({
+      color:['#12654f','#be3f52'],
+      grid:{left:60,right:25,top:48,bottom:92,containLabel:true},
+      legend:{bottom:42},
+      toolbox:{right:8,feature:{dataZoom:{title:{zoom:'Nagyítás',back:'Vissza'}},restore:{title:'Alaphelyzet'},saveAsImage:{title:'Mentés képként',name:id}}},
+      tooltip:{trigger:'axis',axisPointer:{type:'shadow'},formatter:params=>{
+        if (!params.length) return '';
+        const index=params[0].dataIndex;
+        return [params[0].axisValueLabel,...params.map(item=>item.marker+' '+item.seriesName+': <strong>'+item.value+'</strong>'),
+          'Összes módosított sor: <strong>'+(series.additions[index]+series.deletions[index])+'</strong>',
+          'Commit: <strong>'+series.commits[index]+'</strong>','Fájlérintés: <strong>'+series.files[index]+'</strong>'].join('<br>');
+      }},
+      xAxis:{type:'category',name:axisTitle,nameLocation:'middle',nameGap:67,data:series.labels,axisLabel:{rotate:series.labels.length>12?35:0,hideOverlap:true}},
+      yAxis:{type:'value',name:'Módosított sorok',min:0},
+      dataZoom:[{type:'inside',filterMode:'none'},{type:'slider',filterMode:'none',show:series.labels.length>20,height:17,bottom:8}],
+      series:[
+        {name:'Hozzáadott sorok',type:'bar',stack:'code',data:series.additions,barMaxWidth:36,itemStyle:{color:'#12654f'},emphasis:{focus:'series'}},
+        {name:'Törölt sorok',type:'bar',stack:'code',data:series.deletions,barMaxWidth:36,itemStyle:{color:'#be3f52'},emphasis:{focus:'series'}}
+      ]
+    });
+    return chart;
+  }
+  const charts = [drawActivityChart('activity-daily', chartSeries.daily, 'Nap'),
+    drawActivityChart('activity-weekly', chartSeries.weekly, 'ISO-hét'),
+    drawActivityChart('activity-monthly', chartSeries.monthly, 'Hónap')].filter(Boolean);
+  window.addEventListener('resize', () => charts.forEach(chart => chart.resize()));
+})();
+</script>
+
+<section><div class="section-title"><div><p class="kicker">REPOSITORY</p><h2>Repónkénti bontás</h2></div></div><div class="table-wrap"><table><thead><tr><th>Repó</th><th>Commit</th><th>Merge</th><th>Aktív nap</th><th>Branch*</th><th>Fájl</th><th>+ / − sor</th><th>Első</th><th>Utolsó</th></tr></thead><tbody><tr><td><a href="../repositories/repo.html">repo</a></td><td>1</td><td>0</td><td>1</td><td>3</td><td>1</td><td>6 / 1</td><td>2026-02-12</td><td>2026-02-12</td></tr></tbody></table></div></section>
+<section><div class="section-title"><div><p class="kicker">IDŐSOR</p><h2>Havi aktivitás</h2></div></div><div class="table-wrap"><table><thead><tr><th>Hónap</th><th>Intenzitás</th><th>Commit</th><th>Aktív nap</th><th>Fájl</th><th>+ sor</th><th>− sor</th></tr></thead><tbody><tr><td>2026-02</td><td><span class="meter"><i style="width:100%"></i></span></td><td>1</td><td>1</td><td>1</td><td>6</td><td>1</td></tr></tbody></table></div></section>
+<section class="grid"><article class="panel"><h2>Commit-típusok</h2><table><thead><tr><th>Típus</th><th>Darab</th></tr></thead><tbody><tr><td><code>feat</code></td><td>1</td></tr></tbody></table></article><article class="panel"><h2>Trailer-szerepek</h2><table><thead><tr><th>Szerep</th><th>Darab</th></tr></thead><tbody><tr><td colspan="2">Nincs felismert trailer-szerep.</td></tr></tbody></table></article></section>
+<section><div class="section-title"><div><p class="kicker">TECHNOLÓGIAI LÁBNYOM</p><h2>Fájltípusok</h2></div><p class="muted">A fájlérintés commitonként számít; ugyanaz a fájl többször is megjelenhet.</p></div><div class="table-wrap"><table><thead><tr><th>Kiterjesztés</th><th>Fájlérintés</th><th>+ sor</th><th>− sor</th><th>Változtatott sor</th></tr></thead><tbody><tr><td><code>.java</code></td><td>1</td><td>6</td><td>1</td><td>7</td></tr></tbody></table></div></section>
+<section><div class="section-title"><div><p class="kicker">MUNKARITMUS</p><h2>Aktivitás hét és napszak szerint</h2></div><p class="muted">A commit author-időbélyege alapján, a riportot futtató gép időzónájában.</p></div><div class="table-wrap"><table><thead><tr><th>Dimenzió</th><th>Érték</th><th>Commit</th><th>Arány</th></tr></thead><tbody><tr><td>H&eacute;t napja</td><td>H&eacute;tfő</td><td>0</td><td>0.0%</td></tr><tr><td>H&eacute;t napja</td><td>Kedd</td><td>0</td><td>0.0%</td></tr><tr><td>H&eacute;t napja</td><td>Szerda</td><td>0</td><td>0.0%</td></tr><tr><td>H&eacute;t napja</td><td>Cs&uuml;t&ouml;rt&ouml;k</td><td>1</td><td>100.0%</td></tr><tr><td>H&eacute;t napja</td><td>P&eacute;ntek</td><td>0</td><td>0.0%</td></tr><tr><td>H&eacute;t napja</td><td>Szombat</td><td>0</td><td>0.0%</td></tr><tr><td>H&eacute;t napja</td><td>Vas&aacute;rnap</td><td>0</td><td>0.0%</td></tr><tr><td>&Oacute;ra</td><td>14:00&ndash;14:59</td><td>1</td><td>100.0%</td></tr></tbody></table></div></section>
+<section><details><summary><strong>Branch/ref elérhetőség (3)</strong></summary><ul class="columns"><li><code>repo :: feature/dashboard</code></li><li><code>repo :: main</code></li><li><code>repo :: origin/main</code></li></ul><p class="footnote">Egy commit több branchből is elérhető lehet; ez nem a commit eredeti branchét jelenti.</p></details></section>
+<section><div class="section-title"><div><p class="kicker">AUDITÁLHATÓSÁG</p><h2>Commitok</h2></div><p class="muted">Legújabb elöl, minden vizsgált szerzői commit.</p></div><div class="table-wrap"><table><thead><tr><th>Dátum</th><th>Hash</th><th>Repó</th><th>Üzenet</th><th>Típus</th><th>Branch*</th><th>PMD</th><th>Fájl</th><th>+ sor</th><th>− sor</th></tr></thead><tbody><tr><td>2026-02-12 14:30</td><td><a href="../commits/repo-f32d0970e7c6.html"><code title="f32d0970e7c6c51380ee98fe9de386c2404e17a8">f32d0970e7</code></a></td><td>repo</td><td class="subject">feat: k&uuml;l&ouml;nbs&eacute;g &eacute;s als&oacute; korl&aacute;t</td><td>feat</td><td title="feature/dashboard, main, origin/main">3</td><td>—</td><td>1</td><td>6</td><td>1</td></tr></tbody></table></div></section>
+</main>
+  <footer>Git Contributor Report · A forrásadat a Git történet · Leíró statisztika, nem automatikus teljesítményértékelés.</footer>
+</body>
+</html>

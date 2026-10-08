@@ -2,18 +2,11 @@ package hu.devreport;
 
 import java.io.ByteArrayOutputStream;
 import java.io.BufferedInputStream;
-import java.io.BufferedWriter;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStreamWriter;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
@@ -26,7 +19,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -34,6 +26,9 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
@@ -55,11 +50,12 @@ final class GitReportApplication {
     }
 
     static void run(CliOptions args, ProgressListener listener) throws IOException, InterruptedException {
-        boolean reportRequested = args.outputs.contains("html") || args.outputs.contains("markdown");
-        boolean sourceRequested = args.outputs.contains("source");
-        int phaseCount = 3 + (args.fetch ? 1 : 0) + (reportRequested ? 2 : 0) + (sourceRequested ? 1 : 0);
-        int totalWeight = 3 + 5 + (args.fetch ? 12 : 0) + (reportRequested ? 50 + 15 : 0)
-                + (sourceRequested ? 25 : 0) + 2;
+        if (args.renderDatabase != null) {
+            restoreHtml(args, listener);
+            return;
+        }
+        int phaseCount = 5 + (args.fetch ? 1 : 0);
+        int totalWeight = 3 + 5 + (args.fetch ? 12 : 0) + 55 + 20 + 15 + 2;
         ProgressReporter reporter = new ProgressReporter(listener, totalWeight, phaseCount);
         Path root = args.root.toAbsolutePath().normalize();
         Path output = args.output.toAbsolutePath().normalize();
@@ -87,49 +83,67 @@ final class GitReportApplication {
                 fetch.finish("Remote frissítés kész; figyelmeztetések: " + fetchWarnings.size());
             }
 
-            if (!reportRequested && sourceRequested) {
-                Files.createDirectories(output);
-                ProgressReporter.Stage source = reporter.begin(25, "Forráskód-export", "Branchek felderítése");
-                SourceCodeStats sourceStats = SourceCodeExporter.write(output, repositories, root, args, source);
-                source.finish(sourceStats.repositories + " branch-pillanatkép elkészült");
-                ConsoleOutput.printf("Kész: %d branch-pillanatkép, %d szöveges és %d bináris fájl.%n",
-                        sourceStats.repositories, sourceStats.textFiles, sourceStats.binaryFiles);
-                ConsoleOutput.println("Forráskód-index: " + output.resolve("source-code-index.md"));
-                reporter.complete("A forráskód-export elkészült");
-                return;
-            }
-
             Path patchRoot = output.resolve(".patch-cache");
             deleteTree(patchRoot);
             Files.createDirectories(patchRoot);
             Analysis analysis = new Analysis(root, patchRoot);
             analysis.warnings.addAll(fetchWarnings);
-            try {
-                ProgressReporter.Stage analysisStage = reporter.begin(50, "Git-történet elemzése",
+            Path databasePath = args.database == null ? output.resolve("report.sqlite")
+                    : args.database.toAbsolutePath().normalize();
+            try (ReportDatabase database = ReportDatabase.open(databasePath)) {
+                ConsoleOutput.println("SQLite munkatár és cache: " + database.path());
+                ProgressReporter.Stage analysisStage = reporter.begin(55, "Git-történet elemzése",
                         repositories.size() + " repó feldolgozása");
-                for (int i = 0; i < repositories.size(); i++) {
-                    Path repository = repositories.get(i);
-                    ConsoleOutput.printf("[%d/%d] Elemzés: %s%n", i + 1, repositories.size(),
-                            repositoryDisplayName(root, repository));
-                    analyzeRepository(repository, analysis, args, analysisStage, i, repositories.size());
+                ParallelSupport.Activity repositoryActivity = ParallelSupport.activity(repositories.size(), 4);
+                int repositoryWorkers = repositoryActivity.limit();
+                int qualityWorkers = Math.max(1, Math.min(8,
+                        Runtime.getRuntime().availableProcessors() / repositoryWorkers));
+                ParallelSupport.AggregateProgress repositoryProgress = new ParallelSupport.AggregateProgress(
+                        analysisStage, repositories.size(), 0, 1, repositoryActivity);
+                ExecutorService repositoryExecutor = ParallelSupport.executor("git-analysis-",
+                        repositories.size(), 4);
+                List<Future<Analysis>> repositoryFutures = new ArrayList<>();
+                try {
+                    for (int i = 0; i < repositories.size(); i++) {
+                        int repositoryIndex = i;
+                        Path repository = repositories.get(i);
+                        repositoryFutures.add(repositoryExecutor.submit(() -> {
+                            try (ParallelSupport.Scope ignored = repositoryActivity.start()) {
+                                ConsoleOutput.printf("[%d/%d] Elemzés: %s | %s%n", repositoryIndex + 1,
+                                        repositories.size(), repositoryDisplayName(root, repository),
+                                        repositoryActivity.label());
+                                Analysis local = new Analysis(root, patchRoot.resolve("repository-" + repositoryIndex));
+                                analyzeRepository(repository, local, args, repositoryProgress,
+                                        repositoryIndex, repositories.size(), qualityWorkers, database);
+                                return local;
+                            }
+                        }));
+                    }
+                    for (Future<Analysis> future : repositoryFutures) mergeAnalysis(analysis, getFuture(future));
+                } finally {
+                    repositoryExecutor.shutdownNow();
                 }
                 analysisStage.finish(analysis.seenCommits.size() + " commit, "
-                        + analysis.developers.size() + " fejlesztő");
+                        + analysis.developers.size() + " fejlesztő | " + repositoryWorkers + " párhuzamos repó");
 
-                ProgressReporter.Stage report = reporter.begin(15, "Riportfájlok írása",
-                        "HTML és Markdown oldalak előkészítése");
+                ProgressReporter.Stage report = reporter.begin(20, "HTML-riport írása",
+                        "HTML-oldalak előkészítése");
                 ReportWriter.write(output, analysis, args, report);
-                report.finish("A fejlesztői riportfájlok elkészültek");
-                if (sourceRequested) {
-                    ProgressReporter.Stage source = reporter.begin(25, "Forráskód-export", "Branchek felderítése");
-                    SourceCodeStats sourceStats = SourceCodeExporter.write(output, repositories, root, args, source);
-                    source.finish(sourceStats.repositories + " branch-pillanatkép elkészült");
-                    ConsoleOutput.printf("Forráskód: %d branch-pillanatkép.%n", sourceStats.repositories);
-                }
+                report.finish("A HTML-riportfájlok elkészültek");
                 ConsoleOutput.printf("Kész: %d repó, %d egyedi fejlesztő, %d repón belül egyedi commit.%n",
                         analysis.repositories.size(), analysis.developers.size(), analysis.seenCommits.size());
-                if (args.outputs.contains("html")) ConsoleOutput.println("HTML-riport: " + output.resolve("index.html"));
-                if (args.outputs.contains("markdown")) ConsoleOutput.println("Markdown-riport: " + output.resolve("index.md"));
+                ConsoleOutput.println("HTML-riport: " + output.resolve("index.html"));
+                ConsoleOutput.println("Dashboard: " + output.resolve("dashboard.html"));
+                ProgressReporter.Stage databaseStage = reporter.begin(15, "SQLite mentés",
+                        "A HTML-riport tömörített archiválása");
+                ReportDatabase.ArchiveStats archived = database.archiveHtml(output, (current, total) ->
+                        databaseStage.update(total == 0 ? 1 : current / (double) total,
+                                "SQLite HTML-archívum: " + current + "/" + total, current, total));
+                databaseStage.finish(archived.files() + " HTML-eszköz adatbázisba mentve");
+                ConsoleOutput.printf("SQLite: %d HTML-eszköz, %s → %s tömörítve | %s%n", archived.files(),
+                        CliOptions.formatByteSize(archived.originalBytes()),
+                        CliOptions.formatByteSize(archived.storedBytes()), database.cacheSummary());
+                ConsoleOutput.println("Hordozható riportadatbázis: " + database.path());
                 reporter.complete("Minden kiválasztott kimenet elkészült");
             } finally {
                 deleteTree(patchRoot);
@@ -137,6 +151,26 @@ final class GitReportApplication {
         } catch (IOException | InterruptedException | RuntimeException exception) {
             reporter.failed(oneLine(exception.getMessage()));
             throw exception;
+        }
+    }
+
+    private static void restoreHtml(CliOptions args, ProgressListener listener) throws IOException {
+        Path databasePath = args.renderDatabase.toAbsolutePath().normalize();
+        Path output = args.output.toAbsolutePath().normalize();
+        if (!Files.isRegularFile(databasePath)) {
+            throw new IllegalArgumentException("Az SQLite riportadatbázis nem létezik: " + databasePath);
+        }
+        ProgressReporter reporter = new ProgressReporter(listener, 100, 1);
+        ProgressReporter.Stage stage = reporter.begin(100, "HTML visszaállítása", databasePath.toString());
+        try (ReportDatabase database = ReportDatabase.open(databasePath)) {
+            ReportDatabase.ArchiveStats restored = database.restoreHtml(output, (current, total) ->
+                    stage.update(total == 0 ? 1 : current / (double) total,
+                            "SQLite → HTML: " + current + "/" + total, current, total));
+            stage.finish(restored.files() + " HTML-eszköz visszaállítva");
+            ConsoleOutput.printf("HTML újragenerálva SQLite-ból: %d fájl, %s%n", restored.files(),
+                    CliOptions.formatByteSize(restored.originalBytes()));
+            ConsoleOutput.println("HTML-riport: " + output.resolve("index.html"));
+            reporter.complete("A HTML-riport elkészült az SQLite adatbázisból");
         }
     }
 
@@ -154,27 +188,43 @@ final class GitReportApplication {
     private static List<String> fetchRepositories(List<Path> repositories, Path root,
                                                   ProgressReporter.Stage progress)
             throws IOException, InterruptedException {
-        List<String> warnings = new ArrayList<>();
-        for (int i = 0; i < repositories.size(); i++) {
-            Path repository = repositories.get(i);
-            String displayName = repositoryDisplayName(root, repository);
-            progress.update(i / (double) repositories.size(),
-                    "Repó " + (i + 1) + "/" + repositories.size() + " | " + displayName,
-                    i + 1, repositories.size());
-            ConsoleOutput.printf("[%d/%d] Remote frissítése: %s%n",
-                    i + 1, repositories.size(), displayName);
-            CommandResult result = git(repository, "fetch", "--all", "--prune");
-            if (result.exitCode != 0) {
-                String warning = displayName + ": a fetch sikertelen, a riport a helyi Git-adatokból készül: "
-                        + oneLine(sanitizeRemoteUrl(result.stderr));
-                warnings.add(warning);
-                ConsoleOutput.err().println("Figyelmeztetés: " + warning);
+        ParallelSupport.Activity activity = ParallelSupport.activity(repositories.size(), 4);
+        ParallelSupport.AggregateProgress aggregate = new ParallelSupport.AggregateProgress(
+                progress, repositories.size(), 0, 1, activity);
+        ExecutorService executor = ParallelSupport.executor("git-fetch-", repositories.size(), 4);
+        List<Future<String>> futures = new ArrayList<>();
+        try {
+            for (int i = 0; i < repositories.size(); i++) {
+                int index = i;
+                Path repository = repositories.get(i);
+                futures.add(executor.submit(() -> {
+                    try (ParallelSupport.Scope ignored = activity.start()) {
+                        String displayName = repositoryDisplayName(root, repository);
+                        aggregate.update(index, 0, "Repó " + (index + 1) + "/" + repositories.size()
+                                + " | " + displayName, 0, 1);
+                        ConsoleOutput.printf("[%d/%d] Remote frissítése: %s | %s%n",
+                                index + 1, repositories.size(), displayName, activity.label());
+                        CommandResult result = git(repository, "fetch", "--all", "--prune");
+                        aggregate.update(index, 1, "Repó " + (index + 1) + "/" + repositories.size()
+                                + " kész | " + displayName, 1, 1);
+                        if (result.exitCode == 0) return "";
+                        return displayName + ": a fetch sikertelen, a riport a helyi Git-adatokból készül: "
+                                + oneLine(sanitizeRemoteUrl(result.stderr));
+                    }
+                }));
             }
-            progress.update((i + 1) / (double) repositories.size(),
-                    "Repó " + (i + 1) + "/" + repositories.size() + " kész | " + displayName,
-                    i + 1, repositories.size());
+            List<String> warnings = new ArrayList<>();
+            for (Future<String> future : futures) {
+                String warning = getFuture(future);
+                if (!warning.isBlank()) {
+                    warnings.add(warning);
+                    ConsoleOutput.err().println("Figyelmeztetés: " + warning);
+                }
+            }
+            return warnings;
+        } finally {
+            executor.shutdownNow();
         }
-        return warnings;
     }
 
     private static String repositoryDisplayName(Path root, Path repository) {
@@ -225,18 +275,21 @@ final class GitReportApplication {
     }
 
     private static void analyzeRepository(Path repo, Analysis analysis, CliOptions args,
-                                          ProgressReporter.Stage progress, int repositoryIndex,
-                                          int repositoryCount)
+                                          ParallelSupport.AggregateProgress progress, int repositoryIndex,
+                                          int repositoryCount, int qualityWorkers, ReportDatabase database)
             throws IOException, InterruptedException {
         String displayName = repositoryDisplayName(analysis.root, repo);
         updateRepositoryProgress(progress, repositoryIndex, repositoryCount, 0.02,
                 displayName + " | Branchek beolvasása", repositoryIndex + 1, repositoryCount);
 
-        CommandResult branchResult = git(repo, "for-each-ref", "--format=%(refname)%1f%(refname:short)", "refs/heads", "refs/remotes");
-        List<BranchRef> branches = branchResult.stdout.lines().map(String::trim).filter(s -> !s.isBlank())
-                .map(line -> line.split(String.valueOf(UNIT_SEPARATOR), 2))
-                .filter(parts -> parts.length == 2 && !parts[1].endsWith("/HEAD"))
-                .map(parts -> new BranchRef(parts[0], parts[1], parts[0].startsWith("refs/remotes/")))
+        CommandResult branchResult = git(repo, "for-each-ref",
+                "--format=%(refname)%1f%(refname:short)%1f%(objectname)%1f%(committerdate:iso-strict)%1f%(upstream:short)",
+                "refs/heads", "refs/remotes");
+        List<BranchRef> branches = branchResult.stdout.lines().filter(s -> !s.isBlank())
+                .map(line -> line.split(String.valueOf(UNIT_SEPARATOR), -1))
+                .filter(parts -> parts.length >= 5 && !parts[0].endsWith("/HEAD"))
+                .map(parts -> new BranchRef(parts[0], parts[1], parts[0].startsWith("refs/remotes/"),
+                        parts[2], parseInstant(parts[3]), parts[4]))
                 .distinct().sorted(Comparator.comparing(BranchRef::shortName)).toList();
 
         updateRepositoryProgress(progress, repositoryIndex, repositoryCount, 0.10,
@@ -254,6 +307,10 @@ final class GitReportApplication {
         }
 
         String originUrl = sanitizeRemoteUrl(git(repo, "config", "--get", "remote.origin.url").stdout.trim());
+        if (!originUrl.isBlank() && branches.stream().noneMatch(branch -> branch.remote)) {
+            analysis.warnings.add(displayName + ": van origin remote, de nincs helyi remote-tracking branch. "
+                    + "A távoli branchek letöltéséhez futtasd --fetch kapcsolóval.");
+        }
         RepositoryStats repositoryStats = new RepositoryStats(displayName, repo, originUrl, branches.size());
         analysis.repositories.add(repositoryStats);
         Map<String, Commit> localCommits = new HashMap<>();
@@ -276,11 +333,23 @@ final class GitReportApplication {
                         processedRecords, Math.max(1, rawRecords.length - 1));
             }
         }
-        if (args.includePatches) {
+        if (args.includePatches || args.qualityAnalysis) {
             updateRepositoryProgress(progress, repositoryIndex, repositoryCount, 0.58,
-                    displayName + " | Teljes diffek kinyerése: " + localCommits.size() + " commit",
+                    displayName + (args.includePatches ? " | Teljes diffek kinyerése: " : " | Elemzési diffek kinyerése: ")
+                            + localCommits.size() + " commit",
                     localCommits.size(), localCommits.size());
             extractPatches(repo, repositoryStats, localCommits.keySet(), analysis, args);
+        }
+        if (args.qualityAnalysis) {
+            updateRepositoryProgress(progress, repositoryIndex, repositoryCount, 0.62,
+                    displayName + " | PMD commitminősítés indítása", 0, localCommits.size());
+            CommitQualityAnalyzer.analyze(repo, repositoryStats, analysis.patchRoot.resolve("quality"), qualityWorkers,
+                    database, ReportDatabase.repositoryKey(repositoryStats),
+                    (completed, total, commitHash, activity) -> updateRepositoryProgress(progress, repositoryIndex,
+                            repositoryCount, 0.62 + (total == 0 ? 0.16 : completed / (double) total * 0.16),
+                            activity + " | " + displayName + " | PMD: " + completed + "/" + total + " | "
+                                    + commitHash.substring(0, Math.min(12, commitHash.length())),
+                            completed, total));
         }
         updateRepositoryProgress(progress, repositoryIndex, repositoryCount, 0.78,
                 displayName + " | Branch-elérhetőség: 0/" + branches.size(), 0, branches.size());
@@ -294,13 +363,61 @@ final class GitReportApplication {
                         + branches.size() + " branch", repositoryIndex + 1, repositoryCount);
     }
 
-    private static void updateRepositoryProgress(ProgressReporter.Stage progress, int repositoryIndex,
+    private static void updateRepositoryProgress(ParallelSupport.AggregateProgress progress, int repositoryIndex,
                                                  int repositoryCount, double repositoryFraction,
                                                  String detail, long current, long total) {
-        double overall = (repositoryIndex + Math.max(0, Math.min(1, repositoryFraction)))
-                / Math.max(1, repositoryCount);
-        progress.update(overall, "Repó " + (repositoryIndex + 1) + "/" + repositoryCount + " | " + detail,
-                current, total);
+        progress.update(repositoryIndex, repositoryFraction,
+                "Repó " + (repositoryIndex + 1) + "/" + repositoryCount + " | " + detail, current, total);
+    }
+
+    private static void mergeAnalysis(Analysis target, Analysis source) {
+        target.warnings.addAll(source.warnings);
+        target.seenCommits.addAll(source.seenCommits);
+        for (Developer developer : source.developers.values()) target.importDeveloper(developer);
+        for (RepositoryStats repository : source.repositories) {
+            Map<String, ContributionStats> remapped = new TreeMap<>();
+            repository.byDeveloper.forEach((key, stats) -> {
+                Developer local = source.developers.get(key);
+                if (local == null) return;
+                Developer canonical = target.resolvedDeveloper(local.displayName,
+                        local.emails.stream().findFirst().orElse(""));
+                if (canonical != null) remapped.merge(canonical.key, stats, (current, incoming) -> {
+                    current.merge(incoming);
+                    return current;
+                });
+            });
+            repository.byDeveloper.clear();
+            repository.byDeveloper.putAll(remapped);
+            remapDeveloperKeys(repository.authors, source, target);
+            remapDeveloperKeys(repository.roleParticipants, source, target);
+            for (BranchStats branch : repository.branchStats) remapDeveloperKeys(branch.authors, source, target);
+            target.repositories.add(repository);
+        }
+    }
+
+    private static void remapDeveloperKeys(Set<String> keys, Analysis source, Analysis target) {
+        Set<String> remapped = new HashSet<>();
+        for (String key : keys) {
+            Developer local = source.developers.get(key);
+            if (local == null) continue;
+            Developer canonical = target.resolvedDeveloper(local.displayName,
+                    local.emails.stream().findFirst().orElse(""));
+            if (canonical != null) remapped.add(canonical.key);
+        }
+        keys.clear();
+        keys.addAll(remapped);
+    }
+
+    private static <T> T getFuture(Future<T> future) throws IOException, InterruptedException {
+        try {
+            return future.get();
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof IOException io) throw io;
+            if (cause instanceof InterruptedException interrupted) throw interrupted;
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            throw new IOException("A párhuzamos feladat váratlan hibával leállt.", cause);
+        }
     }
 
     private static Commit parseCommit(String raw) {
@@ -340,8 +457,9 @@ final class GitReportApplication {
         author.deletions += commit.deletions;
         author.filesChanged += commit.files;
         author.repositories.add(repository.name);
-        author.activeDays.add(commit.authorDate.atZone(ZoneId.systemDefault()).toLocalDate());
-        author.participationDays.add(commit.authorDate.atZone(ZoneId.systemDefault()).toLocalDate());
+        LocalDate authorDay = commit.authorDate.atZone(ZoneId.systemDefault()).toLocalDate();
+        author.activeDays.add(authorDay);
+        author.participationDays.add(authorDay);
         author.observe(commit.authorDate);
         if (!commit.parents.isBlank() && commit.parents.trim().contains(" ")) author.mergeCommits++;
         else author.nonMergeCommits++;
@@ -351,8 +469,11 @@ final class GitReportApplication {
         applyAuthoredStats(developerRepo, commit);
         applyAuthoredStats(repository.total, commit);
         repository.byDeveloper.put(author.key, developerRepo);
-        author.monthly.computeIfAbsent(YearMonth.from(commit.authorDate.atZone(ZoneId.systemDefault())), ignored -> new ContributionStats());
-        applyAuthoredStats(author.monthly.get(YearMonth.from(commit.authorDate.atZone(ZoneId.systemDefault()))), commit);
+        author.daily.computeIfAbsent(authorDay, ignored -> new ContributionStats());
+        applyAuthoredStats(author.daily.get(authorDay), commit);
+        YearMonth authorMonth = YearMonth.from(authorDay);
+        author.monthly.computeIfAbsent(authorMonth, ignored -> new ContributionStats());
+        applyAuthoredStats(author.monthly.get(authorMonth), commit);
         int weekday = commit.authorDate.atZone(ZoneId.systemDefault()).getDayOfWeek().getValue() - 1;
         int hour = commit.authorDate.atZone(ZoneId.systemDefault()).getHour();
         author.weekdays[weekday]++;
@@ -363,7 +484,7 @@ final class GitReportApplication {
         if (conventional.find()) author.commitTypes.merge(conventional.group(1).toLowerCase(Locale.ROOT), 1L, Long::sum);
         else author.commitTypes.merge("egyéb", 1L, Long::sum);
         if (ISSUE_REFERENCE.matcher(commit.subject).find()) author.issueLinkedCommits++;
-        CommitSummary summary = new CommitSummary(commit.hash, repository.name, commit.authorDate, commit.subject,
+        CommitSummary summary = new CommitSummary(commit.hash, commit.parents, repository.name, commit.authorDate, commit.subject,
                 commit.message, commit.authorName, commit.authorEmail, commit.committerName, commit.committerEmail,
                 commit.files, commit.additions, commit.deletions, !commit.parents.isBlank() && commit.parents.trim().contains(" "),
                 commit.fileChanges, analysis.patchRef(repository.name, commit.hash));
@@ -469,6 +590,8 @@ final class GitReportApplication {
                                         Analysis analysis, RepositoryStats repository,
                                         BranchProgress progress)
             throws IOException, InterruptedException {
+        Map<String, CommitSummary> summaries = repository.commits.stream()
+                .collect(java.util.stream.Collectors.toMap(summary -> summary.hash, summary -> summary));
         for (int branchIndex = 0; branchIndex < branches.size(); branchIndex++) {
             BranchRef branch = branches.get(branchIndex);
             CommandResult result = git(repo, "rev-list", branch.fullName);
@@ -477,11 +600,15 @@ final class GitReportApplication {
                 progress.update(branchIndex + 1, branches.size(), branch.shortName + " (nem olvasható)");
                 continue;
             }
-            BranchStats stats = new BranchStats(branch.shortName, branch.remote);
-            for (String hash : result.stdout.lines().map(String::trim).filter(s -> !s.isBlank()).toList()) {
+            BranchStats stats = new BranchStats(branch);
+            List<String> reachableHashes = result.stdout.lines().map(String::trim).filter(s -> !s.isBlank()).toList();
+            stats.reachableCommits = reachableHashes.size();
+            for (String hash : reachableHashes) {
                 Commit commit = commits.get(hash);
                 if (commit == null) continue; // outside the selected date window
                 stats.commits++;
+                CommitSummary summary = summaries.get(hash);
+                if (summary != null) summary.branches.add(branch.shortName);
                 Developer author = analysis.developer(commit.authorName, commit.authorEmail);
                 stats.authors.add(author.key);
                 author.branchRefs.add(repository.name + " :: " + branch.shortName);

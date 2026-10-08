@@ -46,7 +46,6 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -63,22 +62,19 @@ final class InteractiveConsole {
     private BasicWindow window;
     private TextBox root;
     private TextBox output;
+    private TextBox databasePath;
     private TextBox title;
     private TextBox since;
     private TextBox until;
-    private CheckBox html;
-    private CheckBox markdown;
-    private CheckBox source;
     private CheckBox patches;
     private CheckBox fetch;
-    private ComboBox<String> markdownLimit;
-    private ComboBox<SourceMode> sourceMode;
-    private TextBox sourceValue;
+    private CheckBox quality;
     private TextBox log;
     private Label status;
     private Label progressInfo;
     private ProgressBar progress;
     private Button generate;
+    private Button restore;
     private Button reset;
     private ShortcutMenu fileMenu;
     private ShortcutMenu settingsMenu;
@@ -86,6 +82,7 @@ final class InteractiveConsole {
     private Instant generationStarted;
     private String lastProgressPhase = "";
     private volatile ProgressUpdate lastProgressUpdate;
+    private boolean restoring;
 
     private InteractiveConsole(CliOptions options) {
         this.options = options;
@@ -130,6 +127,10 @@ final class InteractiveConsole {
                     startGeneration();
                     return true;
                 }
+                if (keyStroke.getKeyType() == KeyType.F3) {
+                    startRestore();
+                    return true;
+                }
                 if (keyStroke.getKeyType() == KeyType.F4) {
                     resetForm();
                     return true;
@@ -146,7 +147,7 @@ final class InteractiveConsole {
         window.setMenuBar(menuBar());
 
         Panel rootPanel = new Panel(new LinearLayout(Direction.VERTICAL));
-        rootPanel.addComponent(new Label(" Git Contributor Report  |  TAB: mezőváltás  SPACE: jelölés  ENTER: választás")
+        rootPanel.addComponent(new Label(" Git Contributor Report  |  TAB: mezőváltás  F2: generálás  F3: DB→HTML")
                 .setForegroundColor(TextColor.ANSI.WHITE));
 
         Panel columns = new Panel(new GridLayout(2).setHorizontalSpacing(1));
@@ -154,7 +155,7 @@ final class InteractiveConsole {
         Panel report = buildReportPanel();
         columns.addComponent(paths.withBorder(Borders.singleLine(" Könyvtárak és időszak ")),
                 GridLayout.createLayoutData(GridLayout.Alignment.FILL, GridLayout.Alignment.FILL, true, true));
-        columns.addComponent(report.withBorder(Borders.singleLine(" Riport és forráskód ")),
+        columns.addComponent(report.withBorder(Borders.singleLine(" Riport és elemzés ")),
                 GridLayout.createLayoutData(GridLayout.Alignment.FILL, GridLayout.Alignment.FILL, true, true));
         rootPanel.addComponent(columns,
                 LinearLayout.createLayoutData(LinearLayout.Alignment.Fill, LinearLayout.GrowPolicy.CanGrow));
@@ -164,7 +165,7 @@ final class InteractiveConsole {
         rootPanel.addComponent(log.withBorder(Borders.singleLine(" Napló ")),
                 LinearLayout.createLayoutData(LinearLayout.Alignment.Fill, LinearLayout.GrowPolicy.CanGrow));
 
-        progressInfo = new Label("  Készen áll – az F2 indítja a riportgenerálást");
+        progressInfo = new Label("  Készen áll – F2: generálás, F3: HTML visszaállítása SQLite-ból");
         rootPanel.addComponent(progressInfo,
                 LinearLayout.createLayoutData(LinearLayout.Alignment.Fill, LinearLayout.GrowPolicy.None));
 
@@ -176,8 +177,10 @@ final class InteractiveConsole {
         Panel footer = new Panel(new LinearLayout(Direction.HORIZONTAL).setSpacing(1));
         footer.addComponent(new Button("F1 Súgó", this::showHelp));
         generate = new Button("F2 Generálás", this::startGeneration);
+        restore = new Button("F3 DB→HTML", this::startRestore);
         reset = new Button("F4 Alapérték", this::resetForm);
         footer.addComponent(generate);
+        footer.addComponent(restore);
         footer.addComponent(reset);
         footer.addComponent(new Button("F10 Kilépés", this::requestClose));
         status = new Label("  Készen áll");
@@ -192,11 +195,13 @@ final class InteractiveConsole {
         Panel panel = new Panel(new GridLayout(2).setHorizontalSpacing(1));
         root = textBox();
         output = textBox();
+        databasePath = textBox();
         title = textBox();
         since = textBox();
         until = textBox();
         addField(panel, "Gyökér:", pathPicker(root, "Gyökérkönyvtár kiválasztása"));
         addField(panel, "Kimenet:", pathPicker(output, "Kimeneti könyvtár kiválasztása"));
+        addField(panel, "SQLite DB:", databasePath);
         addField(panel, "Riport címe:", title);
         addField(panel, "Kezdet:", datePicker(since, "Kezdődátum kiválasztása"));
         addField(panel, "Vége:", datePicker(until, "Záródátum kiválasztása"));
@@ -226,44 +231,22 @@ final class InteractiveConsole {
 
     private Panel buildReportPanel() {
         Panel panel = new Panel(new LinearLayout(Direction.VERTICAL));
-        panel.addComponent(new Label("Kimenetek:"));
-        html = control(new CheckBox("HTML riport"));
-        markdown = control(new CheckBox("Markdown + fejlesztői MD fájlok"));
-        source = control(new CheckBox("Forráskód branchenként"));
-        panel.addComponent(html);
-        panel.addComponent(markdown);
-        panel.addComponent(source);
+        panel.addComponent(new Label("Kimenet: HTML + hordozható SQLite"));
+        panel.addComponent(new Label("A DB-ből a HTML bármikor visszaállítható."));
         patches = control(new CheckBox("Teljes commit diffek"));
         fetch = control(new CheckBox("git fetch --all --prune"));
+        quality = control(new CheckBox("PMD/CPD commitminősítés (6 nyelv)"));
         panel.addComponent(patches);
         panel.addComponent(fetch);
-        markdownLimit = control(new ComboBox<>("korlátlan", "1 MB", "5 MB", "10 MB", "25 MB", "50 MB", "100 MB",
-                "500 MB", "750 MB", "1024 MB"));
-        markdownLimit.setDropDownNumberOfRows(10);
-        markdownLimit.setPreferredSize(new TerminalSize(13, 1));
-        Panel markdownLimitRow = new Panel(new LinearLayout(Direction.HORIZONTAL).setSpacing(1));
-        markdownLimitRow.addComponent(new Label("MD max.:"));
-        markdownLimitRow.addComponent(markdownLimit);
-        panel.addComponent(markdownLimitRow);
-        sourceMode = control(new ComboBox<>(SourceMode.values()));
-        sourceMode.setReadOnly(true);
-        sourceMode.setDropDownNumberOfRows(SourceMode.values().length);
-        sourceMode.setPreferredSize(new TerminalSize(25, 1));
-        sourceMode.addListener((selectedIndex, previousSelection, changedByUserInteraction) -> updateSourceControl());
-        Panel sourceModeRow = new Panel(new LinearLayout(Direction.HORIZONTAL).setSpacing(1));
-        sourceModeRow.addComponent(new Label("Forrás:"));
-        sourceModeRow.addComponent(sourceMode);
-        panel.addComponent(sourceModeRow);
-        panel.addComponent(new Label("Branchlista vagy Git ref:"));
-        sourceValue = textBox();
-        panel.addComponent(sourceValue);
-        panel.addComponent(new Label("Lista példa: main,develop,origin/release"));
+        panel.addComponent(quality);
+        panel.addComponent(new Label("A teljes forrás és diff deduplikáltan archiválódik."));
         return panel;
     }
 
     private MenuBar menuBar() {
         fileMenu = new ShortcutMenu("Fájl");
         fileMenu.add(new MenuItem("Riport generálása   F2", this::startGeneration));
+        fileMenu.add(new MenuItem("HTML visszaállítása DB-ből   F3", this::startRestore));
         fileMenu.add(new MenuItem("Kilépés             F10", this::requestClose));
         settingsMenu = new ShortcutMenu("Beállítások");
         settingsMenu.add(new MenuItem("Alapértékek visszaállítása   F4", this::resetForm));
@@ -425,9 +408,21 @@ final class InteractiveConsole {
     }
 
     private void startGeneration() {
+        startRun(false);
+    }
+
+    private void startRestore() {
+        startRun(true);
+    }
+
+    private void startRun(boolean restoreFromDatabase) {
         if (!running.compareAndSet(false, true)) return;
         try {
             collectOptions();
+            restoring = restoreFromDatabase;
+            options.renderDatabase = restoreFromDatabase
+                    ? (options.database == null ? options.output.resolve("report.sqlite") : options.database)
+                    : null;
         } catch (IllegalArgumentException exception) {
             running.set(false);
             MessageDialog.showMessageDialog(gui, "Hibás beállítás", exception.getMessage(), MessageDialogButton.OK);
@@ -442,7 +437,7 @@ final class InteractiveConsole {
         lastProgressUpdate = null;
         progressInfo.setText("  [0%] Indítás – a feladat előkészítése");
         status.setText("  0%  Indítás");
-        appendLog("=== Riportgenerálás indítása ===");
+        appendLog(restoring ? "=== HTML visszaállítása SQLite-ból ===" : "=== Riportgenerálás indítása ===");
         startProgressHeartbeat();
 
         Thread.ofVirtual().name("report-generator").start(() -> {
@@ -465,9 +460,9 @@ final class InteractiveConsole {
         running.set(false);
         if (exception == null) {
             status.setText("  Kész: " + options.output.toAbsolutePath().normalize());
-            progressInfo.setText("  [100%] Kész – minden kiválasztott kimenet elkészült – eltelt "
+            progressInfo.setText("  [100%] Kész – " + (restoring ? "a HTML visszaállt" : "a riport elkészült") + " – eltelt "
                     + elapsedText());
-            appendLog("=== A generálás sikeresen befejeződött ===");
+            appendLog(restoring ? "=== A HTML visszaállítása sikerült ===" : "=== A generálás sikeresen befejeződött ===");
         } else {
             status.setText("  Hiba: " + oneLine(exception.getMessage()));
             progressInfo.setText("  HIBA " + progress.getValue() + "% után – "
@@ -538,64 +533,27 @@ final class InteractiveConsole {
     private void collectOptions() {
         options.root = path(root.getText(), "A gyökérkönyvtár");
         options.output = path(output.getText(), "A kimeneti könyvtár");
+        options.database = databasePath.getText().isBlank() ? null : path(databasePath.getText(), "Az SQLite DB");
         options.title = required(title.getText(), "A riport címe");
         options.since = blankToNull(since.getText());
         options.until = blankToNull(until.getText());
-        options.outputs = new LinkedHashSet<>();
-        if (html.isChecked()) options.outputs.add("html");
-        if (markdown.isChecked()) options.outputs.add("markdown");
-        if (source.isChecked()) options.outputs.add("source");
-        if (options.outputs.isEmpty()) throw new IllegalArgumentException("Legalább egy kimenetet válassz ki.");
         options.includePatches = patches.isChecked();
         options.noPatches = !options.includePatches;
         options.fetch = fetch.isChecked();
-        String maximumSize = markdownLimit.getText().trim();
-        options.maxMarkdownBytes = maximumSize.equalsIgnoreCase("korlátlan") || maximumSize.equals("0")
-                ? 0
-                : CliOptions.parseByteSize(maximumSize);
-        options.sourceOnly = false;
-
-        SourceMode mode = sourceMode.getSelectedItem();
-        options.sourceRefExplicit = false;
-        if (mode == SourceMode.REF) {
-            options.sourceRef = required(sourceValue.getText(), "A Git ref");
-            options.sourceRefExplicit = true;
-        } else if (mode == SourceMode.LIST) {
-            options.sourceBranches = parseBranches(sourceValue.getText());
-            if (options.sourceBranches.isEmpty()) {
-                throw new IllegalArgumentException("A branchlista nem lehet üres.");
-            }
-        } else {
-            options.sourceBranches = new LinkedHashSet<>(List.of(mode.value));
-        }
+        options.qualityAnalysis = quality.isChecked();
         options.normalize();
     }
 
     private void fillForm(CliOptions values) {
         root.setText(values.root.toString());
         output.setText(values.output.toString());
+        databasePath.setText(values.database == null ? "" : values.database.toString());
         title.setText(values.title);
         since.setText(orEmpty(values.since));
         until.setText(orEmpty(values.until));
-        html.setChecked(values.outputs.contains("html"));
-        markdown.setChecked(values.outputs.contains("markdown"));
-        source.setChecked(values.outputs.contains("source"));
         patches.setChecked(values.includePatches);
         fetch.setChecked(values.fetch);
-        String formattedLimit = CliOptions.formatByteSize(values.maxMarkdownBytes);
-        boolean knownLimit = false;
-        for (int index = 0; index < markdownLimit.getItemCount(); index++) {
-            if (markdownLimit.getItem(index).equals(formattedLimit)) knownLimit = true;
-        }
-        if (!knownLimit) markdownLimit.addItem(formattedLimit);
-        markdownLimit.setSelectedItem(formattedLimit);
-
-        SourceMode mode = SourceMode.from(values);
-        sourceMode.setSelectedItem(mode);
-        sourceValue.setText(mode == SourceMode.REF
-                ? values.sourceRef
-                : mode == SourceMode.LIST ? String.join(",", values.sourceBranches) : "");
-        updateSourceControl();
+        quality.setChecked(values.qualityAnalysis);
     }
 
     private void resetForm() {
@@ -605,7 +563,7 @@ final class InteractiveConsole {
         fillForm(defaults);
         log.setText("");
         progress.setValue(0);
-        progressInfo.setText("  Készen áll – az F2 indítja a riportgenerálást");
+        progressInfo.setText("  Készen áll – F2: generálás, F3: HTML visszaállítása SQLite-ból");
         status.setText("  Alapértékek visszaállítva");
     }
 
@@ -696,18 +654,11 @@ final class InteractiveConsole {
         return result.toString().stripTrailing();
     }
 
-    private void updateSourceControl() {
-        SourceMode mode = sourceMode.getSelectedItem();
-        sourceValue.setEnabled(mode == SourceMode.LIST || mode == SourceMode.REF);
-        if (mode == SourceMode.LIST && sourceValue.getText().isBlank()) sourceValue.setText("main");
-        if (mode == SourceMode.REF && sourceValue.getText().isBlank()) sourceValue.setText("HEAD");
-    }
-
     private void setControlsEnabled(boolean enabled) {
         controls.forEach(control -> control.setEnabled(enabled));
         generate.setEnabled(enabled);
+        restore.setEnabled(enabled);
         reset.setEnabled(enabled);
-        if (enabled) updateSourceControl();
     }
 
     private void appendLog(String line) {
@@ -755,16 +706,6 @@ final class InteractiveConsole {
         return value.trim();
     }
 
-    static LinkedHashSet<String> parseBranches(String value) {
-        LinkedHashSet<String> branches = new LinkedHashSet<>();
-        if (value == null) return branches;
-        for (String branch : value.split(",")) {
-            String trimmed = branch.trim();
-            if (!trimmed.isEmpty()) branches.add(trimmed);
-        }
-        return branches;
-    }
-
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
@@ -777,40 +718,6 @@ final class InteractiveConsole {
         return value == null ? "ismeretlen hiba" : value.replaceAll("\\s+", " ").trim();
     }
 
-    private enum SourceMode {
-        ALL("Minden helyi és remote branch", "all"),
-        LOCAL("Csak helyi branchek", "local"),
-        REMOTE("Csak remote branchek", "remote"),
-        LIST("Branchlista", "list"),
-        REF("Egyetlen branch / tag / commit", "ref");
-
-        private final String label;
-        private final String value;
-
-        SourceMode(String label, String value) {
-            this.label = label;
-            this.value = value;
-        }
-
-        static SourceMode from(CliOptions options) {
-            if (options.sourceRefExplicit) return REF;
-            if (options.sourceBranches.size() == 1) {
-                return switch (options.sourceBranches.iterator().next()) {
-                    case "all" -> ALL;
-                    case "local" -> LOCAL;
-                    case "remote" -> REMOTE;
-                    default -> LIST;
-                };
-            }
-            return LIST;
-        }
-
-        @Override
-        public String toString() {
-            return label;
-        }
-    }
-
     private enum HelpTopic {
         QUICK_START("1. Gyors kezdés", """
                 Interaktív használat:
@@ -818,8 +725,8 @@ final class InteractiveConsole {
 
                 1. Válaszd ki a Git repókat tartalmazó gyökérkönyvtárat.
                 2. Add meg a riport kimeneti könyvtárát.
-                3. Jelöld ki a szükséges HTML, Markdown és forráskód kimeneteket.
-                4. Szükség esetén állíts dátumot, branch-kört, fetch-et és MD méretkorlátot.
+                3. A SQLite mezőben opcionálisan adj meg hordozható adatbázisfájlt.
+                4. Szükség esetén állíts dátumot, PMD/CPD elemzést és fetch-et.
                 5. Nyomj F2-t vagy válaszd a Fájl / Riport generálása menüpontot.
 
                 A futás üzenetei a Napló panelen, állapota az alsó százalékos sávon látható.
@@ -835,7 +742,8 @@ final class InteractiveConsole {
                 Alt+F: Fájl menü.
                 Alt+B: Beállítások menü.
                 Alt+S: Súgó menü.
-                F1: részletes súgó; F2: generálás; F4: alapértékek; F10: kilépés.
+                F1: részletes súgó; F2: generálás; F3: HTML visszaállítása SQLite-ból;
+                F4: alapértékek; F10: kilépés.
 
                 A legördülő listában Enter után a fel/le nyíllal válassz, majd Enterrel fogadd el.
                 """),
@@ -857,39 +765,58 @@ final class InteractiveConsole {
                 és az év első napja. Év, hónap és nap külön listából is megadható. Az értékmező
                 szerkeszthető, ezért a Git által elfogadott más dátumkifejezés is használható.
 
-                A szűrés a commit dátumára vonatkozik; a forráskód-export mindig a kiválasztott
-                branch vagy ref aktuális commitolt pillanatképét írja ki.
+                A szűrés a commit dátumára vonatkozik. A dashboardon ettől független,
+                szűkebb from/to időablak is kiválasztható.
                 """),
         OUTPUTS("5. Riportkimenetek", """
                 HTML riport: böngészhető index, fejlesztői, repó- és commitoldalak, helyi CSS-sel.
-                Markdown: index.md, továbbá fejlesztőnkénti, repónkénti és commitonkénti MD fájlok.
-                Forráskód: minden kiválasztott branch teljes commitolt fája külön Markdownban.
+                A külön dashboard.html grafikonlaborban from/to dátum, több fejlesztő,
+                repó és branch szűrhető; a kódaktivitás és a PMD/CPD-score mutatói
+                külön kapcsolhatók. A dashboard és a commitok teljes snapshotja offline működik.
+                A report.sqlite hordozható adatbázis tömörítve megőrzi a teljes HTML-riportot,
+                valamint a PMD/CPD cache-t. Másik gépen is folytatható és Git repó nélkül
+                visszaállítható belőle a HTML a --render-db kapcsolóval.
 
-                Több kimenet egyszerre is kijelölhető. A Teljes commit diffek kapcsoló a konkrét
+                A Teljes commit diffek kapcsoló a konkrét
                 hozzáadott és törölt kódot is begyűjti. Kikapcsolása jelentősen gyorsíthatja a
                 riportot és csökkentheti a tárhelyigényt, de a kódmódosítások tartalma kimarad.
                 """),
-        SOURCE("6. Branch- és forráskód-export", """
-                Minden helyi és remote branch: minden elérhető refs/heads és refs/remotes ág.
-                Csak helyi / csak remote: a megadott branch-csoport.
-                Branchlista: vesszővel elválasztott pontos nevek, például main,develop,origin/release.
-                Egyetlen branch / tag / commit: egy Git ref vagy commit hash, például HEAD vagy master.
+        QUALITY("6. PMD/CPD commitminősítés", """
+                A PMD/CPD commitminősítés kapcsoló a JAR-ba csomagolt PMD 7 statikus
+                elemzőt futtatja Java, SQL, HTML, JavaScript, TypeScript és PL/SQL forrásokra.
+                Nem igényel SonarQube-szervert vagy internetkapcsolatot.
 
-                A forrás a Git objektum-adatbázisából készül, ezért csak commitolt fájlokat tartalmaz;
-                a munkakönyvtár nem commitolt változásai nem kerülnek bele. A bináris fájlokról metaadat
-                készül, de bináris tartalmuk nem ágyazódik a Markdownba.
-                """),
-        MARKDOWN_SIZE("7. Markdown méretkorlát", """
-                Az MD max. mező fájlonkénti felső határt állít. Választható például 10 MB, 500 MB,
-                750 MB vagy 1024 MB; egyéni érték is beírható. A korlátlan érték kikapcsolja a
-                darabolást. A CLI megfelelője: --max-md-size 500MB.
+                A program a commit utáni teljes módosított forrásfájlt elemzi, majd csak azokat
+                a megállapításokat tartja meg, amelyek a diff ténylegesen hozzáadott soraira esnek.
+                A CPD a legalább 50 tokenes másolt kódrészleteket is jelzi. A commitlap pontot,
+                A–E kategóriát, nyelvet, elemzőt, szabályt, prioritást, fájlt, sort és magyarázatot ad.
 
-                A nagy dokumentum helyén egy tartalomjegyzék marad, a részek neve .part-001.md,
-                .part-002.md és így tovább. A daraboló nem vág félbe UTF-8 karaktert, és a részeken
-                átívelő Markdown-kódblokkokat lezárja, majd a következő részben újranyitja.
-                A legkisebb nem nulla korlát 16 KB.
+                A pontszám statikus kódminőségi jelzés, nem önálló fejlesztői teljesítménymérés.
+                A TypeScriptet a CPD vizsgálja; teljes PMD szabálykészlet nincs hozzá.
+                A commitokat a gép kapacitása alapján legfeljebb 8 worker elemzi párhuzamosan.
+                Hosszú történetnél így is jelentősen lassíthat, ezért szűkítsd a
+                Kezdet/Vége időszakot. CLI megfelelője: --quality.
                 """),
-        FETCH("8. Git fetch működése", """
+        SOURCE("7. SQLite adatbázis", """
+                A generálás munkatára és tartós eredménye alapértelmezésben a kimeneti
+                könyvtár report.sqlite fájlja. Egyéni hely a --database kapcsolóval adható meg.
+                A PMD/CPD eredmények commitonként kerülnek bele, ezért egy megszakadt futás után
+                a már elkészült elemzéseket nem kell újraszámolni.
+
+                A fájl hordozható: másik gépre másolva is használható. Biztonságos másoláshoz
+                a futás befejezése után másold, amikor a program már lezárta az adatbázist.
+                """),
+        MARKDOWN_SIZE("8. HTML visszaállítása", """
+                Egy korábbi adatbázis HTML-riportja Git-repó és új elemzés nélkül
+                az F3 billentyűvel vagy parancssorból kiírható:
+
+                  java -jar git-contributor-report-1.0.0-SNAPSHOT.jar
+                  --render-db report.sqlite --output visszaallitott-riport
+
+                A visszaállítás az indexet, dashboardot, fejlesztői, repó- és commitoldalakat,
+                valamint az offline ECharts és snapshot eszközöket is kiírja.
+                """),
+        FETCH("9. Git fetch működése", """
                 A git fetch --all --prune kapcsoló minden megtalált repóban frissíti a remote-tracking
                 refeket az elemzés előtt. Hálózati kapcsolatot és a remote eléréséhez szükséges
                 hitelesítést igényelhet.
@@ -899,7 +826,7 @@ final class InteractiveConsole {
                 remote-on már nem létező követő refeket. Sikertelen fetch esetén figyelmeztetés után
                 a helyben elérhető Git-adatokkal folytatódik a riport.
                 """),
-        INTERPRETATION("9. A riport értelmezése", """
+        INTERPRETATION("10. A riport értelmezése", """
                 A riport szerző, e-mail, commit, branch-elérhetőség, aktív nap, fájlérintés,
                 hozzáadott/törölt sor, fájltípus és időbeli aktivitás szerint összesít. A commit
                 részletek tartalmazhatják az üzenetet, az érintett fájlokat és a teljes diffet.
@@ -915,11 +842,18 @@ final class InteractiveConsole {
                 eltérő feladatnehézség torzíthatja az összehasonlítást. Értékeléskor mindig szükséges
                 a technikai és szervezeti kontextus emberi vizsgálata.
                 """),
-        PERFORMANCE("10. Teljesítmény és adatvédelem", """
-                Sok branch, hosszú történet és teljes forráskód esetén a futás és a kimenet nagy lehet.
-                Gyorsításhoz szűkítsd a dátumtartományt vagy a brancheket, kapcsold ki a teljes diffeket,
-                illetve csak a szükséges kimenettípusokat jelöld ki. Forráskód-exportnál célszerű MD
-                méretkorlátot használni.
+        PERFORMANCE("11. Teljesítmény és adatvédelem", """
+                Sok branch és hosszú történet esetén a futás és a kimenet nagy lehet.
+                Gyorsításhoz szűkítsd a dátumtartományt, kapcsold ki a teljes diffeket,
+                vagy csak indokolt esetben kapcsold be a PMD/CPD elemzést.
+
+                A repóelemzés, PMD/CPD, snapshotkészítés és HTML-riportoldalak írása
+                automatikusan, korlátozott worker poolokkal párhuzamos.
+
+                Az „Aktív szál: 3/8” kijelzés azt jelenti, hogy az adott pillanatban 3 worker
+                dolgozik, az aktuális fázis pedig legfeljebb 8 workert használhat. A számláló a
+                feladatok indulásakor és befejezésekor élőben változik; nem a gép összes szálát,
+                hanem az aktuális munkafázis saját, korlátozott poolját mutatja.
 
                 Generálás közben a százalékos sáv feletti állapotsor mutatja a fázis sorszámát, az
                 aktuális repót, commitot, branchet vagy fájlt, a részfeladat számlálóit és az eltelt
@@ -930,12 +864,16 @@ final class InteractiveConsole {
                 tartalmazhat. Kezeld bizalmas fejlesztési adatként; megosztás előtt ellenőrizd a
                 jogosultságokat és a célkönyvtár tartalmát.
                 """),
-        CLI("11. Parancssori használat", """
+        CLI("12. Parancssori használat", """
                 A teljes képernyős felület nélkül minden beállítás automatizálható. Példa:
 
                   java -jar git-contributor-report-1.0.0-SNAPSHOT.jar --root C:\\projektek
-                  --output report --outputs html,markdown,source --since 2026-01-01
-                  --source-branches main,develop --max-md-size 500MB --fetch
+                  --output report --database report/report.sqlite --since 2026-01-01
+                  --until 2026-12-31 --quality --fetch
+
+                HTML visszaállítása az adatbázisból:
+                  java -jar git-contributor-report-1.0.0-SNAPSHOT.jar
+                  --render-db report/report.sqlite --output ujrairt-html
 
                 A --help kilistázza az összes opciót és további példákat. Az --interactive együtt is
                 használható a többi kapcsolóval; ilyenkor azok a felület kezdőértékei. Automatizált

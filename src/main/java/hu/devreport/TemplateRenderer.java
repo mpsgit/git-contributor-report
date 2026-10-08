@@ -30,7 +30,7 @@ final class TemplateRenderer {
             template.process(model, output);
             return output.toString();
         } catch (IOException | TemplateException e) {
-            throw new IllegalStateException("A sablon nem renderelhető: " + templateName, e);
+            throw new IllegalStateException("A sablon nem renderelhető: " + templateName + " — " + e.getMessage(), e);
         }
     }
 

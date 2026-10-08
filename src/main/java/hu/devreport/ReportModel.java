@@ -42,9 +42,12 @@ final class Commit {
 }
 
 final class BranchRef {
-    final String fullName, shortName; final boolean remote;
-    BranchRef(String fullName, String shortName, boolean remote) {
+    final String fullName, shortName, tipHash, upstream;
+    final Instant lastCommit;
+    final boolean remote;
+    BranchRef(String fullName, String shortName, boolean remote, String tipHash, Instant lastCommit, String upstream) {
         this.fullName = fullName; this.shortName = shortName; this.remote = remote;
+        this.tipHash = tipHash; this.lastCommit = lastCommit; this.upstream = upstream;
     }
     String shortName() { return shortName; }
 }
@@ -73,43 +76,88 @@ final class TreeEntry {
     String mode() { return mode; } String hash() { return hash; } long size() { return size; } String path() { return path; }
 }
 
-final class SourceBranch {
-    final Path repository; final String repositoryName, fullRef, branchName, commit;
-    SourceBranch(Path repository, String repositoryName, String fullRef, String branchName, String commit) {
-        this.repository = repository; this.repositoryName = repositoryName; this.fullRef = fullRef;
-        this.branchName = branchName; this.commit = commit;
-    }
-    Path repository() { return repository; } String repositoryName() { return repositoryName; }
-    String fullRef() { return fullRef; } String branchName() { return branchName; } String commit() { return commit; }
-}
-
-final class SourceCodeStats {
-    final int repositories; final long textFiles, binaryFiles, bytes;
-    SourceCodeStats(int repositories, long textFiles, long binaryFiles, long bytes) {
-        this.repositories = repositories; this.textFiles = textFiles; this.binaryFiles = binaryFiles; this.bytes = bytes;
-    }
-    long textFiles() { return textFiles; } long binaryFiles() { return binaryFiles; } long bytes() { return bytes; }
-}
-
 final class CommitSummary {
-    final String hash, repository, subject, message, authorName, authorEmail, committerName, committerEmail;
+    final String hash, parents, repository, subject, message, authorName, authorEmail, committerName, committerEmail;
     final Instant date;
     final int files;
     final long additions, deletions;
     final boolean merge;
     final List<FileChange> fileChanges;
     final PatchRef patch;
+    final Set<String> branches = new HashSet<>();
+    QualityAssessment quality = QualityAssessment.notRun();
 
-    CommitSummary(String hash, String repository, Instant date, String subject, String message,
+    CommitSummary(String hash, String parents, String repository, Instant date, String subject, String message,
                   String authorName, String authorEmail, String committerName, String committerEmail,
                   int files, long additions, long deletions, boolean merge,
                   List<FileChange> fileChanges, PatchRef patch) {
-        this.hash = hash; this.repository = repository; this.date = date; this.subject = subject; this.message = message;
+        this.hash = hash; this.parents = parents; this.repository = repository; this.date = date; this.subject = subject; this.message = message;
         this.authorName = authorName; this.authorEmail = authorEmail; this.committerName = committerName;
         this.committerEmail = committerEmail; this.files = files; this.additions = additions;
         this.deletions = deletions; this.merge = merge; this.fileChanges = fileChanges; this.patch = patch;
     }
     Instant date() { return date; }
+}
+
+final class QualityAssessment {
+    enum Status { NOT_RUN, NOT_APPLICABLE, COMPLETE, FAILED }
+
+    final Status status;
+    final int score;
+    final String grade;
+    final String summary;
+    final int analyzedFiles;
+    final long analyzedAddedLines;
+    final Map<String, Integer> analyzedLanguages;
+    final List<String> notes;
+    final List<QualityFinding> findings;
+
+    QualityAssessment(Status status, int score, String grade, String summary,
+                      int analyzedFiles, long analyzedAddedLines, Map<String, Integer> analyzedLanguages,
+                      List<String> notes, List<QualityFinding> findings) {
+        this.status = status;
+        this.score = score;
+        this.grade = grade;
+        this.summary = summary;
+        this.analyzedFiles = analyzedFiles;
+        this.analyzedAddedLines = analyzedAddedLines;
+        this.analyzedLanguages = Map.copyOf(analyzedLanguages);
+        this.notes = List.copyOf(notes);
+        this.findings = List.copyOf(findings);
+    }
+
+    static QualityAssessment notRun() {
+        return new QualityAssessment(Status.NOT_RUN, -1, "—", "A minőségelemzés nem futott le.", 0, 0,
+                Map.of(), List.of(), List.of());
+    }
+
+    static QualityAssessment notApplicable(String summary) {
+        return new QualityAssessment(Status.NOT_APPLICABLE, -1, "—", summary, 0, 0,
+                Map.of(), List.of(), List.of());
+    }
+
+    static QualityAssessment failed(String summary) {
+        return new QualityAssessment(Status.FAILED, -1, "hiba", summary, 0, 0,
+                Map.of(), List.of(), List.of());
+    }
+}
+
+final class QualityFinding {
+    final String language, analyzer, rule, ruleSet, message, path, externalUrl;
+    final int priority, line;
+
+    QualityFinding(String language, String analyzer, String rule, String ruleSet, String message, String path, int line,
+                   int priority, String externalUrl) {
+        this.language = language;
+        this.analyzer = analyzer;
+        this.rule = rule;
+        this.ruleSet = ruleSet;
+        this.message = message;
+        this.path = path;
+        this.line = line;
+        this.priority = priority;
+        this.externalUrl = externalUrl;
+    }
 }
 
 final class PatchRef {
@@ -173,6 +221,37 @@ final class Analysis {
         return developer;
     }
 
+    Developer resolvedDeveloper(String name, String email) {
+        String cleanEmail = normalizeEmail(email);
+        Developer byEmail = cleanEmail.isBlank() ? null : developersByEmail.get(cleanEmail);
+        return byEmail != null ? byEmail : developersByName.get(normalizeName(name));
+    }
+
+    Developer importDeveloper(Developer incoming) {
+        Set<Developer> matches = new HashSet<>();
+        incoming.emails.stream().map(Analysis::normalizeEmail).map(developersByEmail::get)
+                .filter(java.util.Objects::nonNull).forEach(matches::add);
+        incoming.names.stream().map(Analysis::normalizeName).map(developersByName::get)
+                .filter(java.util.Objects::nonNull).forEach(matches::add);
+        List<Developer> orderedMatches = matches.stream().sorted(java.util.Comparator.comparing(value -> value.key)).toList();
+        Developer target = orderedMatches.isEmpty() ? null : orderedMatches.getFirst();
+        if (target == null) {
+            String key = incoming.emails.stream().map(Analysis::normalizeEmail).filter(value -> !value.isBlank())
+                    .sorted().findFirst().map(value -> "mail:" + value)
+                    .orElseGet(() -> "name:" + normalizeName(incoming.displayName));
+            target = new Developer(key, incoming.displayName);
+            developers.put(key, target);
+        }
+        for (Developer match : orderedMatches) if (match != target) target = mergeDevelopers(target, match);
+        target.absorb(incoming);
+        for (String name : incoming.names) developersByName.put(normalizeName(name), target);
+        for (String email : incoming.emails) {
+            String normalized = normalizeEmail(email);
+            if (!normalized.isBlank()) developersByEmail.put(normalized, target);
+        }
+        return target;
+    }
+
     private Developer mergeDevelopers(Developer target, Developer duplicate) {
         target.absorb(duplicate);
         developers.remove(duplicate.key);
@@ -223,6 +302,7 @@ final class Developer {
     final Set<LocalDate> participationDays = new HashSet<>();
     final Map<String, Long> roles = new TreeMap<>();
     final Map<String, ContributionStats> byRepository = new TreeMap<>();
+    final Map<LocalDate, ContributionStats> daily = new TreeMap<>();
     final Map<YearMonth, ContributionStats> monthly = new TreeMap<>();
     final Map<String, FileDelta> fileTypes = new TreeMap<>();
     final Map<String, Long> commitTypes = new TreeMap<>();
@@ -273,6 +353,10 @@ final class Developer {
         mergeLongMap(roles, other.roles);
         mergeLongMap(commitTypes, other.commitTypes);
         other.byRepository.forEach((name, stats) -> byRepository.merge(name, stats, (current, incoming) -> {
+            current.merge(incoming);
+            return current;
+        }));
+        other.daily.forEach((day, stats) -> daily.merge(day, stats, (current, incoming) -> {
             current.merge(incoming);
             return current;
         }));
@@ -386,13 +470,19 @@ final class FileDelta {
 }
 
 final class BranchStats {
-    final String name;
+    final String name, fullName, tipHash, upstream;
+    final Instant lastCommit;
     final boolean remote;
     final Set<String> authors = new HashSet<>();
+    long reachableCommits;
     long commits;
 
-    BranchStats(String name, boolean remote) {
-        this.name = name;
-        this.remote = remote;
+    BranchStats(BranchRef branch) {
+        this.name = branch.shortName;
+        this.fullName = branch.fullName;
+        this.remote = branch.remote;
+        this.tipHash = branch.tipHash;
+        this.lastCommit = branch.lastCommit;
+        this.upstream = branch.upstream;
     }
 }

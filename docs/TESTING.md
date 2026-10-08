@@ -1,117 +1,57 @@
-# Tesztelési útmutató
+# Tesztelés
 
-## Előfeltételek
-
-- Java 21 vagy újabb;
-- Maven 3.9 vagy újabb;
-- Git 2.x a `PATH`-on.
-
-A Git nemcsak az alkalmazás, hanem a végponttól végpontig teszt előfeltétele is. Az integrációs teszt minden futáskor a JUnit ideiglenes könyvtárában hoz létre repót, ezért nem módosít valódi projektet vagy globális Git-konfigurációt.
-
-## Automatikus tesztek
-
-Gyors futtatás:
+## Automatizált ellenőrzés
 
 ```powershell
 mvn test
-```
-
-Tiszta fordítás és teljes Maven lifecycle-ellenőrzés:
-
-```powershell
 mvn clean verify
 ```
 
-A Surefire szöveges és XML eredményei a `target/surefire-reports` könyvtárba kerülnek. A `target` generált könyvtár, nincs verziókezelésben.
+A `verify` a unit/integrációs tesztek mellett a csomagolt, minden függőséget tartalmazó JAR-t is elindítja. Ez külön védi a Lanterna dialógusosztályokat a Shade minimalizálási hibától.
 
-## Mit ellenőriz a tesztcsomag?
-
-| Réteg | Ellenőrzés |
+| Terület | Ellenőrzés |
 |---|---|
-| CLI | Alapértékek, rövid/hosszú opciók, hibás értékek, kimenet- és branchlista, Markdown-méretek, magyar súgó. |
-| TUI-segédek | Branchlista, könyvtárválasztó kezdőpont, súgótémák, Alt-menükódok és szövegrövidítés. |
-| Termináladapter | Tab, CR/LF Enter, kontrollkarakterek és magyar Unicode karakterek. |
-| Identitások | Azonos e-mail, normalizált név, ékezet/case/whitespace és tranzitív aliaslánc. |
-| Modell/writer | HTML- és Markdown-escaping, stabil slugok, forrásnyelv-felismerés. |
-| Repófelderítés | Normál `.git` könyvtár, bare repó, worktree `.git` pointer és output könyvtár kizárása. |
-| Markdown-darabolás | Bájtlimit, UTF-8 épség, kódkerítések egyensúlya és régi részek takarítása. |
-| Folyamatjelzés | Súlyozott, monoton százalék, fázisok és részszámlálók. |
-| Integráció | Valódi Git commitokból HTML/Markdown/source, diff és társszerző; nem commitolt tartalom kizárása; source-only út. |
+| CLI | HTML/SQLite alapértékek, dátumok, `--database`, `--render-db`, interaktív flag, megszűnt opciók elutasítása, magyar súgó. |
+| Identitás | Azonos e-mail vagy normalizált név tranzitív összevonása; ékezet, szóköz és kis-/nagybetű kezelése. |
+| Git integráció | Valódi ideiglenes repók, lokális/remote branchek, társszerző, diff, nem commitolt tartalom kizárása. |
+| Dashboard | Dátum-, fejlesztő-, repó- és branch-szűrők; fejlesztőnkénti csoportosítás; névvel jelölt sorozatok; PMD/CPD és drill-down adatok. |
+| Snapshot | Deduplikált offline blobok, commit/fájl index és előtte/utána kód. |
+| SQLite | Cache mentés-visszaolvasás, bezárás utáni hordozhatóság, GZIP HTML-archívum, Markdown kizárása, teljes HTML-visszaállítás. |
+| PMD/CPD | Java, SQL, HTML, JavaScript, TypeScript, PL/SQL, pontszám és finding részletek. |
+| Párhuzamosság | Worker-korlát, aktívszál-jelzés és repók közötti identitásegyesítés. |
+| Csomagolt JAR | `--help`, `--version`, Lanterna `MessageDialogButton` jelenléte. |
 
-Az integrációs fixture fiktív neveket és `test.invalid` e-mail-címeket használ. Nincs valódi fejlesztői név vagy e-mail a tesztkódban.
-
-## Csomagolási és CLI smoke teszt
+## Kézi smoke teszt
 
 ```powershell
-mvn clean package
-java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar --version
+mvn clean verify
+
 java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar --help
-```
 
-Elvárt eredmény:
-
-- a build `BUILD SUCCESS` üzenettel zárul;
-- az összes JUnit teszt sikeres;
-- a verzió és a magyar, ékezethelyes súgó megjelenik;
-- a létrejött JAR közvetlenül, külön classpath nélkül fut.
-
-## Kézi CLI mátrix
-
-Egy kisméretű, nem érzékeny tesztrepón ellenőrizd:
-
-```powershell
-# Csak HTML, diff nélkül
 java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar `
-  --root C:\teszt\repo --output C:\teszt\riport-html --outputs html --no-patches
+  --root C:\teszt\repok --output C:\teszt\riport `
+  --since 2026-01-01 --until 2026-12-31 --quality
 
-# Markdown és darabolás
 java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar `
-  --root C:\teszt\repo --output C:\teszt\riport-md --outputs markdown --max-md-size 16KB
-
-# Kiválasztott branchek teljes forrása
-java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar `
-  --root C:\teszt\repo --output C:\teszt\riport-source --source-only `
-  --source-branches main,develop
-
-# Egyetlen commit/ref
-java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar `
-  --root C:\teszt\repo --output C:\teszt\riport-ref --source-only --source-ref HEAD
+  --render-db C:\teszt\riport\report.sqlite `
+  --output C:\teszt\visszaallitott
 ```
 
-Ellenőrizd, hogy az indexlinkek megnyílnak, a kódblokkban látszik a tényleges módosítás, a source export nem tartalmaz dirty worktree tartalmat, és a `.part-NNN.md` fájlok nem nagyobbak a megadott limitnél.
+Ellenőrizd:
 
-## Kézi interaktív ellenőrzés
+1. Az `index.html`, `dashboard.html`, `report.sqlite` és az offline snapshot megvan.
+2. A dashboard hálózat nélkül betöltődik.
+3. Az `Összehasonlítás` alapértéke `Fejlesztőnként`.
+4. A jelmagyarázatban minden sorozat a fejlesztő nevével kezdődik, és a személyek különböző színűek.
+5. Egy fejlesztői sorozat pontjára kattintva csak az adott személy adott időszaki commitjai jelennek meg.
+6. Fejlesztő-, repó-, branch- és from/to szűrés után a grafikon és az összesítő kártyák frissülnek.
+7. A commitoldalon látszik az előtte/utána kód és a snapshot link.
+8. A visszaállított HTML fájljai megegyeznek az archivált változattal.
 
-```powershell
-java -jar target/git-contributor-report-1.0.0-SNAPSHOT.jar --interactive
-```
+## Interaktív felület
 
-Ellenőrzési lista:
+Indítsd `-i` kapcsolóval, majd ellenőrizd a `Tab`, `Shift+Tab`, nyilak, `Enter`, `Space`, `Alt+F`, `Alt+B`, `Alt+S`, `F1`, `F2`, `F3`, `F4`, `F10` működését. Az F3-nak a megadott vagy alapértelmezett SQLite-fájlból elemzés nélkül kell visszaállítania a HTML-t. A fájlböngészőből válassz gyökeret és kimenetet, a dátumválasztóból fix értéket, majd generálás alatt figyeld az aktuális fázist és az `Aktív szál` számlálót.
 
-1. `Tab` és `Shift+Tab` minden vezérlőn végighalad.
-2. `Enter` aktiválja a gombot/listaelemet, `Space` kapcsolja a checkboxot.
-3. `Alt+F`, `Alt+B`, `Alt+S`, valamint `F1`, `F2`, `F4`, `F10` működik.
-4. A root/output tallózó kiválasztott könyvtára visszakerül a mezőbe.
-5. A dátumválasztó preset és év/hónap/nap listája helyes értéket ír be.
-6. A branchmódok és az egyedi lista/ref mező engedélyezése követi a választást.
-7. Az MD-limit listában a `500 MB`, `750 MB` és `1024 MB` érték elérhető.
-8. Generálás közben változik a fázis, százalék, részszámláló, kiírt méret és eltelt idő.
-9. A magyar karakterek helyesek, a napló görgethető, a felület futás közben sem fagy meg.
+## Tesztadatok
 
-## Hibakeresés
-
-Részletes stack trace:
-
-```powershell
-$env:DEV_REPORT_DEBUG = "1"
-mvn test
-```
-
-Egy tesztosztály vagy tesztmetódus futtatása:
-
-```powershell
-mvn -Dtest=GitReportApplicationIntegrationTest test
-mvn -Dtest=CliOptionsTest#parsesHumanReadableMarkdownLimits test
-```
-
-Ha az integrációs teszt Git-hibával áll le, először futtasd a `git --version` parancsot. A teszt csak repository-local `user.name` és `user.email` beállítást ír az ideiglenes repóba; a globális konfigurációt nem módosítja.
+Az automatizált tesztek ideiglenes könyvtárakat és fiktív `test.invalid` e-mail-címeket használnak. Valós fejlesztői név vagy e-mail nincs hard code-olva az alkalmazás logikájában.

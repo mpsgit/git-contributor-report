@@ -1,105 +1,58 @@
 # Kimenetek
 
-Minden szöveges kimenet UTF-8 kódolású. A fájlnevek stabil, ékezetmentes slugból készülnek; névütközéskor `-2`, `-3`, … utótag biztosítja az egyediséget.
-
-## Teljes könyvtárszerkezet
+## Könyvtárszerkezet
 
 ```text
 report/
-├── index.html                 # ha html kimenet aktív
-├── index.md                   # ha markdown kimenet aktív
-├── style.css                  # önálló HTML-stíluslap
-├── developers/
-│   ├── <fejlesztő>.html
-│   └── <fejlesztő>.md
-├── repositories/
-│   ├── <repó>.html
-│   └── <repó>.md
-├── commits/
-│   ├── <repó>-<hash>.html
-│   └── <repó>-<hash>.md
-├── source-code-index.md       # ha source kimenet aktív
-├── source-code-<branch>.md
-└── *.part-001.md              # csak beállított méretkorlát túllépésekor
+├── index.html
+├── dashboard.html
+├── style.css
+├── echarts.min.js
+├── snapshot.html
+├── snapshot-data.js
+├── report.sqlite
+├── developers/*.html
+├── repositories/*.html
+├── commits/*.html
+└── snapshots/blobs/*.html
 ```
 
-Több repó forrásexportjánál a fájlnév a repó slugját is tartalmazza: `source-code-<repó>--<branch>.md`.
+A program nem készít Markdown-kimenetet. Friss generáláskor az általa korábban létrehozott legacy `.md` riportokat eltávolítja a kimeneti riportkönyvtárból.
 
-## HTML
+## `index.html`
 
-A `--outputs html` az alábbiakat hozza létre:
+Az összes repó közös összesítője: közreműködők, commitok, sorok, repók, branch/ref-leltár, origin linkek és módszertani megjegyzések. Egy commit repónként egyszer számít, akkor is, ha több branchből elérhető.
 
-```text
-index.html
-style.css
-developers/*.html
-repositories/*.html
-commits/*.html
-```
+## `dashboard.html`
 
-Az `index.html` az összesítő belépőpont. A HTML önállóan megnyitható, külső JavaScriptet vagy webes stíluslapot nem igényel.
+Offline ECharts nézet az alábbiakkal:
 
-Az összesítő fejlesztői és repónkénti táblázatokat, módszertani megjegyzéseket és figyelmeztetéseket tartalmaz. A fejlesztői oldalakon identitásaliasok, aktivitási időszakok, havi/repónkénti bontások, technológiai lábnyom, ritmusadatok és a commitlista jelenik meg. A commitoldalak teljes üzenetet, fájllistát, módosított kódrészleteket és – ha engedélyezett – teljes Git diffet tartalmaznak.
+- fejlesztőnkénti vagy összesített csoportosítás;
+- minden fejlesztőhöz stabil szín és névvel ellátott sorozat/jelmagyarázat;
+- from/to dátum, napi/heti/havi felbontás;
+- több fejlesztő, repó és branch/ref egyidejű kiválasztása, illetve Összes;
+- hozzáadott/törölt sor, commit, fájl, PMD/CPD találat és score;
+- grafikonpontból fejlesztőre is szűkített commit drill-down;
+- commitoldal, előtte/utána kód és teljes commit-snapshot link.
 
-## Markdown
+## Részletes oldalak
 
-A `--outputs markdown` szerkezete:
+A `developers` oldalak identitás-aliasokat, repó-, havi-, napi/heti/havi grafikon-, technológia- és commitbontást tartalmaznak. A `repositories` oldalak brancheket, közreműködőket, fájltípusokat és commitokat mutatnak. A `commits` oldalak teljes üzenetet, fájllistát, előtte/utána kódot, opcionális teljes diffet és PMD/CPD eredményt adnak.
 
-```text
-index.md
-developers/*.md
-repositories/*.md
-commits/*.md
-```
+## Snapshot
 
-Minden fejlesztő egyetlen saját Markdown-fájlt kap. Patch-ek engedélyezésekor ebben a hozzá tartozó commitok teljes üzenete, fájllistája, hozzáadott/törölt kódja és teljes diffje is szerepel.
+A `snapshot.html` a `snapshot-data.js` index és a deduplikált `snapshots/blobs` tartalom alapján internet nélkül megmutatja egy kiválasztott commit teljes követett forrásfáját. Bináris blobnál metaadat látszik, a bináris tartalom nem ágyazódik be.
 
-A repónkénti és commitonkénti Markdownok ugyanazt az elemzési modellt használják, mint a HTML. A Markdown linkek relatívak, ezért a teljes kimeneti könyvtár együtt mozgatható.
+## `report.sqlite`
 
-## Branchenkénti forráskód
+Az adatbázis WAL módot és normál szinkronizálást használ. Tartalma:
 
-A `--outputs source` kimenete:
+- metaadatok és sémaverzió;
+- repository/commit/elemzőverzió kulcsú PMD/CPD cache JSON formában;
+- minden `.html`, `.css` és `.js` kimeneti eszköz GZIP-tömörítve.
 
-```text
-source-code-index.md
-source-code-master.md
-source-code-origin-develop.md
-source-code-origin-feature-valami.md
-...
-```
+Szabályos lezáráskor WAL-checkpoint történik. A lezárt egyetlen SQLite-fájl másolható, archiválható és `--render-db` segítségével újra kibontó.
 
-A fájlnév a branch nevének fájlrendszer-biztos alakját tartalmazza. Az index megőrzi az eredeti branchnevet és a pontos commit-hasht.
+## Adatvédelem
 
-A kiírt branchek a `--source-branches` opcióval választhatók: `all`, `local`, `remote`, vagy vesszővel elválasztott pontos lista, például `main,develop,origin/release`. A `--source-ref` továbbra is egyetlen branch, tag vagy commit exportjára szolgál, és elsőbbséget élvez a listával szemben.
-
-Minden branchfájlban a Git-fában szereplő blobok sorrendben jelennek meg. Egy szöveges fájl blokkja tartalmazza:
-
-- a repó nevét;
-- a relatív útvonalat, mappát és fájlnevet;
-- a Git blob-hasht és módot;
-- a bájtméretet és a Markdown nyelvi jelölést;
-- a teljes szöveges tartalmat dinamikusan méretezett kódkerítésben.
-
-A bináris bloboknál a metaadat bekerül, a bináris bájtok nem. A tartalom a Git objektum-adatbázisából származik, ezért a munkakönyvtár nem commitolt állapota nem módosítja.
-
-A source index repónként és branchenként megadja az eredeti refet, a pontos commit-hasht és a létrehozott fájl linkjét. Szimbolikus remote `HEAD` ref nem készít külön exportot.
-
-## Kimenetek együttes használata
-
-Az `--outputs html,markdown,source` mindhárom csoportot elkészíti. A HTML- és Markdown-index csak akkor linkeli a `source-code-index.md` fájlt, ha a `source` is a kiválasztott kimenetek között van.
-
-## Markdown-darabolás
-
-A `--max-md-size` minden létrehozott `.md` dokumentumra vonatkozik. Túllépéskor az eredeti fájl egy részjegyzékké alakul, a tartalom pedig `.part-001.md`, `.part-002.md`, … fájlokba kerül. A daraboló:
-
-- UTF-8 kódponthatáron vág;
-- nem hagy lezáratlan bekerített kódblokkot;
-- a következő részben újranyitja az átnyúló kódblokkot;
-- újrafuttatás előtt eltávolítja az adott dokumentum korábbi részeit;
-- a részeket is a beállított bájtkorlát alatt tartja.
-
-## Felülírás és adatkezelés
-
-A generált fájlnevek fenntartottak. Az alkalmazás a kiválasztott formátumhoz tartozó korábbi generált oldalakat takarítja, de tetszőleges más fájlokat nem töröl. Érdemes külön, kizárólag riportcélú könyvtárat megadni.
-
-A kimenet személyes és üzleti szempontból érzékeny lehet: e-mail-címeket, commitüzeneteket, diffeket és teljes forráskódot tartalmazhat. Ne publikáld automatikusan, és ne helyezd nyilvános webkiszolgálóra felülvizsgálat nélkül.
+A HTML és az SQLite ugyanúgy tartalmazhat nevet, e-mailt, commitüzenetet, diffet és forráskódot. Mindkettő bizalmas fejlesztési adatnak tekintendő.
