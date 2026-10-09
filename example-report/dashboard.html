@@ -17,6 +17,7 @@
     <label>From<input id="dashboard-from" type="date"></label><label>To<input id="dashboard-to" type="date"></label>
     <label>Felbontás<select id="dashboard-granularity"><option value="day">Napi</option><option value="week">Heti</option><option value="month" selected>Havi</option></select></label>
     <label>Aktivitás típusa<select id="dashboard-style"><option value="bar" selected>Oszlop</option><option value="line">Vonal</option></select></label>
+    <label>Y tengely skálája<select id="dashboard-scale"><option value="linear" selected>Lineáris</option><option value="log">Logaritmikus (10-es)</option></select></label>
     <label>Összehasonlítás<select id="dashboard-grouping"><option value="developer" selected>Fejlesztőnként</option><option value="total">Összesítve</option></select></label>
     <button type="button" id="dashboard-reset">Összes / alaphelyzet</button>
   </div></fieldset>
@@ -56,7 +57,7 @@
   <p class="footnote"><strong>Fontos:</strong> a magas pontszám nem bizonyítja, hogy a kód helyes vagy jó, az alacsony pontszám pedig nem bizonyít gyenge fejlesztői teljesítményt. A tesztek, az üzleti helyesség, az architektúra, a feladat nehézsége és a csapatmunka külön értékelendő.</p>
 </details>
 
-<aside class="chart-explanation"><strong>Minőség értelmezése:</strong> a PMD/CPD-vonal csak a <code>--quality</code> kapcsolóval elemzett commitokat tartalmazza. A pontcímke például <code>86/B</code>; a betű az adott időpont aggregált pontjából készül. A branch-szűrés ref-elérhetőséget jelent, ezért ugyanaz a commit több branchhez tartozhat, de a grafikon egyszer számolja.</aside>
+<aside class="chart-explanation"><strong>Skálák és minőség:</strong> logaritmikus módban a kódsorok, commitok, fájlérintések és találatok 10-es alapú tengelyt használnak; a nulla nem ábrázolható logaritmikus tengelyen, ezért nem kap mesterséges oszlopot vagy pontot. A 0–100-as PMD/CPD-score mindig saját lineáris tengelyen marad. A PMD/CPD-vonal csak a <code>--quality</code> kapcsolóval elemzett commitokat tartalmazza. A pontcímke például <code>86/B</code>; a betű az adott időpont aggregált pontjából készül. A branch-szűrés ref-elérhetőséget jelent, ezért ugyanaz a commit több branchhez tartozhat, de a grafikon egyszer számolja.</aside>
 <noscript><p class="empty-chart">Az interaktív szűréshez engedélyezni kell a helyi JavaScript futását.</p></noscript>
 </section>
 <script src="echarts.min.js"></script>
@@ -192,15 +193,17 @@
     const labels = [...groups.keys()].sort(), points = labels.map(label => groups.get(label));
     currentLabels = labels;
     const activityType = byId('dashboard-style').value;
+    const logarithmic = byId('dashboard-scale').value === 'log';
     const grouping = byId('dashboard-grouping').value;
     const series = [];
     currentSeriesDevelopers = new Map();
-    const activitySeries = (name, values, color, developer, deleted) => ({name,type:activityType,data:values,yAxisIndex:0,
-      stack:activityType === 'bar' ? (developer || 'összes') : undefined,smooth:activityType === 'line' ? .2 : false,
+    const axisValues = values => logarithmic ? values.map(value => value > 0 ? value : null) : values;
+    const activitySeries = (name, values, color, developer, deleted) => ({name,type:activityType,data:axisValues(values),yAxisIndex:0,
+      stack:activityType === 'bar' && !logarithmic ? (developer || 'összes') : undefined,smooth:activityType === 'line' ? .2 : false,
       itemStyle:{color,opacity:deleted?.55:1},lineStyle:{color,width:deleted?1.5:2,type:deleted?'dashed':'solid'},
       areaStyle:activityType === 'line' ? {color,opacity:deleted?.03:.08} : undefined,
       barMaxWidth:34,emphasis:{focus:'series'}});
-    const countSeries = (name, values, color, developer, dashed) => ({name,type:'line',data:values,yAxisIndex:1,smooth:.2,
+    const countSeries = (name, values, color, developer, dashed) => ({name,type:'line',data:axisValues(values),yAxisIndex:1,smooth:.2,
       symbolSize:7,itemStyle:{color},lineStyle:{color,width:2,type:dashed?'dashed':'solid'},emphasis:{focus:'series'}});
     const addQualitySeries = (name, values, color, developer, showLabels) => {
       const labelStep = Math.max(1, Math.ceil(values.length / 30));
@@ -251,8 +254,8 @@
       }},
       xAxis:{type:'category',name:'Időszak',nameLocation:'middle',nameGap:72,data:labels,boundaryGap:activityType === 'bar',axisLabel:{rotate:labels.length > 12 ? 35 : 0,hideOverlap:true}},
       yAxis:[
-        {type:'value',name:'Módosított sorok',min:0,show:showCode,position:'left'},
-        {type:'value',name:'Commit / fájl / megállapítás',min:0,show:showCount,position:'right',offset:showQuality ? 65 : 0},
+        {type:logarithmic?'log':'value',logBase:10,name:'Módosított sorok',min:logarithmic?1:0,show:showCode,position:'left',minorTick:{show:logarithmic},minorSplitLine:{show:logarithmic}},
+        {type:logarithmic?'log':'value',logBase:10,name:'Commit / fájl / megállapítás',min:logarithmic?1:0,show:showCount,position:'right',offset:showQuality ? 65 : 0,minorTick:{show:logarithmic},minorSplitLine:{show:logarithmic}},
         {type:'value',name:'PMD/CPD score',min:0,max:100,show:showQuality,position:'right'}
       ],
       dataZoom:[{type:'inside',xAxisIndex:0,filterMode:'none'},{type:'slider',xAxisIndex:0,filterMode:'none',show:labels.length > 20,height:18,bottom:10}],
@@ -263,7 +266,7 @@
     byId('dashboard-summary').innerHTML = summaryCard(filtered.length.toLocaleString('hu-HU'),'szűrt commit') + summaryCard((additions+deletions).toLocaleString('hu-HU'),'módosított sor')
       + summaryCard(allScores.length.toLocaleString('hu-HU'),'minősített commit') + summaryCard(average == null ? '—' : average + '/100','PMD/CPD score')
       + summaryCard(grade(average),'PMD/CPD kategória') + summaryCard(new Set(filtered.map(item=>item.developer)).size,'fejlesztő');
-    byId('dashboard-range').textContent = (from || 'első commit') + ' – ' + (to || 'utolsó commit') + ' · ' + labels.length + ' időpont · ' + (grouping==='developer'?'fejlesztőnként':'összesítve');
+    byId('dashboard-range').textContent = (from || 'első commit') + ' – ' + (to || 'utolsó commit') + ' · ' + labels.length + ' időpont · ' + (grouping==='developer'?'fejlesztőnként':'összesítve') + ' · ' + (logarithmic?'logaritmikus':'lineáris') + ' skála';
     byId('dashboard-empty').hidden = filtered.length !== 0;
     chart.resize();
     hideDrilldown();
@@ -286,7 +289,7 @@
     document.querySelectorAll('.filter-options input').forEach(input=>input.checked=false);
     document.querySelectorAll('.filter-picker summary').forEach((summary,index)=>{const names=['Fejlesztő','Repó','Branch/ref'];const counts=[unique('developer').length,unique('repository').length,unique('branches').length];summary.textContent=names[index]+': összes ('+counts[index]+')';});
     document.querySelectorAll('[data-metric]').forEach(input=>input.checked=['additions','deletions','qualityScore'].includes(input.dataset.metric));
-    byId('dashboard-quality-labels').checked=true; byId('dashboard-granularity').value='month'; byId('dashboard-style').value='bar'; byId('dashboard-grouping').value='developer'; byId('dashboard-quality-mode').value='average'; update();
+    byId('dashboard-quality-labels').checked=true; byId('dashboard-granularity').value='month'; byId('dashboard-style').value='bar'; byId('dashboard-scale').value='linear'; byId('dashboard-grouping').value='developer'; byId('dashboard-quality-mode').value='average'; update();
   });
   byId('dashboard-drilldown-close').addEventListener('click', hideDrilldown);
   update();

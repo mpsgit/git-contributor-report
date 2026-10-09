@@ -28,6 +28,7 @@ class ReportWriterTest {
     @Test
     void escapesHtmlMetadata() {
         assertEquals("&lt;script&gt;&amp;&quot;&#39;", ReportWriter.html("<script>&\"'"));
+        assertEquals("k&oacute;d&#32;&#32;\n&#32;", ReportWriter.htmlCode("kód  \n "));
         assertEquals("", ReportWriter.html(null));
     }
 
@@ -105,6 +106,10 @@ class ReportWriterTest {
         assertTrue(dashboard.contains("dashboard-to"));
         assertTrue(dashboard.contains("dashboard-developers"));
         assertTrue(dashboard.contains("dashboard-grouping"));
+        assertTrue(dashboard.contains("dashboard-scale"));
+        assertTrue(dashboard.contains("Logaritmikus (10-es)"));
+        assertTrue(dashboard.contains("type:logarithmic?'log':'value'"));
+        assertTrue(dashboard.contains("min:logarithmic?1:0"));
         assertTrue(dashboard.contains("Fejlesztőnként"));
         assertTrue(dashboard.contains("developerPalette"));
         assertTrue(dashboard.contains("dashboard-developer-key"));

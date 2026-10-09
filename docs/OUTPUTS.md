@@ -32,6 +32,7 @@ Offline ECharts nézet az alábbiakkal:
 - from/to dátum, napi/heti/havi felbontás;
 - több fejlesztő, repó és branch/ref egyidejű kiválasztása, illetve Összes;
 - hozzáadott/törölt sor, commit, fájl, PMD/CPD találat és score;
+- lineáris vagy 10-es alapú logaritmikus skála a darabszám-alapú tengelyekhez, külön lineáris PMD/CPD-score tengellyel;
 - grafikonpontból fejlesztőre is szűkített commit drill-down;
 - commitoldal, előtte/utána kód és teljes commit-snapshot link.
 

@@ -2,7 +2,7 @@
 
 Java 21-es parancssori és Midnight Commander-stílusú terminálalkalmazás Git-fejlesztői aktivitás elemzéséhez. Egy gyökérkönyvtár alatt rekurzívan felismeri a normál, bare és worktree repókat, minden helyben elérhető lokális és remote ref commitjait egy közös HTML-riportba rendezi, az eredményt pedig hordozható SQLite-adatbázisban is megőrzi.
 
-A dedikált offline dashboard napi, heti vagy havi bontásban, névvel és külön színnel jelölt fejlesztői sorozatokon hasonlítja össze a hozzáadott/törölt sorokat, commitokat, fájlérintéseket és PMD/CPD eredményeket. Dátum, fejlesztő, repó és branch szerint többszörösen szűrhető; egy grafikonpontra kattintva megnyitható a commitlista, az előtte/utána kód és az adott commit offline forrássnapshotja.
+A dedikált offline dashboard napi, heti vagy havi bontásban, névvel és külön színnel jelölt fejlesztői sorozatokon hasonlítja össze a hozzáadott/törölt sorokat, commitokat, fájlérintéseket és PMD/CPD eredményeket. A darabszám-alapú tengelyek lineáris vagy 10-es alapú logaritmikus skálán jeleníthetők meg; a PMD/CPD-score megtartja a saját 0–100-as lineáris tengelyét. Dátum, fejlesztő, repó és branch szerint többszörösen szűrhető; egy grafikonpontra kattintva megnyitható a commitlista, az előtte/utána kód és az adott commit offline forrássnapshotja.
 
 ## Dokumentáció
 

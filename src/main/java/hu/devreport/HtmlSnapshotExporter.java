@@ -177,7 +177,7 @@ final class HtmlSnapshotExporter {
         boolean binary = isBinary(content);
         String body = binary
                 ? "<p class=\"empty-chart\">Bináris Git-blob; szöveges forráskódként nem jeleníthető meg.</p>"
-                : "<pre class=\"source snapshot-source\"><code>" + ReportWriter.html(new String(content, StandardCharsets.UTF_8))
+                : "<pre class=\"source snapshot-source\"><code>" + ReportWriter.htmlCode(new String(content, StandardCharsets.UTF_8))
                 + "</code></pre>";
         String html = """
                 <!doctype html><html lang="hu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

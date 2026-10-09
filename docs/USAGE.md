@@ -48,7 +48,7 @@ A progress fázist, aktuális repót/commitot/fájlt, elemszámot, kiírt méret
 
 A `dashboard.html` alapértelmezésben fejlesztőnként csoportosít. Minden fejlesztő saját színt kap, a jelmagyarázat minden sorozatban tartalmazza a nevét, például `Kiss Anna · + sor`. Az `Összehasonlítás` listában összesített nézet is választható.
 
-Az időszak, napi/heti/havi felbontás, egy vagy több fejlesztő, repó, branch és mutató szűrhető. Grafikonpontra kattintva az adott időszak és – fejlesztőnkénti sorozatnál – az adott fejlesztő commitjai jelennek meg.
+Az időszak, napi/heti/havi felbontás, egy vagy több fejlesztő, repó, branch és mutató szűrhető. A kódsor-, commit-, fájl- és találati tengely lineáris vagy 10-es alapú logaritmikus lehet. Logaritmikus módban a nulla érték nem rajzolható ki, a PMD/CPD-score viszont mindig változatlan 0–100-as lineáris tengelyen marad. Grafikonpontra kattintva az adott időszak és – fejlesztőnkénti sorozatnál – az adott fejlesztő commitjai jelennek meg.
 
 ## SQLite és folytatás
 
